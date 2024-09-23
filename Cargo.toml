@@ -1,0 +1,9 @@
+[package]
+name = "rfcmei"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+argh = "0.1.12"
+html5gum = "0.5.7"
+tl = "0.7.8"
