@@ -1,9 +1,16 @@
+#![feature(let_chains)]
+
+mod document;
+mod tree;
+
 use std::fs::File;
 use std::io::Read;
 use std::path::PathBuf;
 
 use argh::FromArgs;
-use tl::{Node, ParserOptions};
+use document::Document;
+use html5gum::Tokenizer;
+use tree::{Node, Tree};
 
 #[derive(FromArgs)]
 /// A tool to prettify RFC documents.
@@ -22,32 +29,10 @@ fn main() -> Result<(), String> {
     file.read_to_string(&mut rfc_xhtml)
         .map_err(|e| e.to_string())?;
 
-    let rfc_dom = tl::parse(&rfc_xhtml, ParserOptions::new()).map_err(|e| e.to_string())?;
-    let parser = rfc_dom.parser();
+    let dom = Tree::from_tokens(Tokenizer::new(&rfc_xhtml).infallible()).unwrap();
 
-    let mut count = 0;
-
-    for page in rfc_dom.query_selector(r##"pre[class="newpage"]"##).unwrap() {
-        let children = page.get(parser).unwrap().as_tag().unwrap().children();
-
-        for child in children.all(parser) {
-            match child {
-                Node::Raw(bytes) => println!("[RAW] {}", bytes.as_utf8_str()),
-                Node::Comment(_) => (),
-                Node::Tag(tag)
-                    if tag
-                        .attributes()
-                        .class()
-                        .is_some_and(|cl| cl.as_bytes() == b"grey") => {}
-                Node::Tag(tag) => println!("[TAG] {}", tag.raw().as_utf8_str()),
-            }
-        }
-
-        count += 1;
-        if count == 3 {
-            break;
-        }
-    }
+    let document = Document::from_html(dom)?;
+    println!("{}", document.print());
 
     Ok(())
 }
