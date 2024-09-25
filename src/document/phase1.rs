@@ -1,6 +1,7 @@
 //! In the first phase, HTML elements of the original RFC document are largely
 //! degenerated. Only the most important tags (<meta>, <pre>, <a>, <span>) are
-//! retained and in some cases the tags are merged.
+//! retained and in some cases the tags are merged. The contents are not analysed.
+//!
 
 use std::sync::LazyLock;
 
@@ -17,44 +18,42 @@ pub(super) enum MetaElement {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) enum Element {
-    // Ordinary text
+    /// Ordinary text
     Text(Box<str>),
 
     // Below are the headings. The first field is always the innerHTML of the
     // heading, while the second field is its ID. <h1> doesn't have an ID.
-
-    // span[class="h1"] and <h1>
+    /// span[class="h1"] and <h1>
     H1(Box<str>),
-    // span[class="h2"] and <h2>; has an anchor
+    /// span[class="h2"] and <h2>; has an anchor
     H2(Box<str>, Box<str>),
-    // span[class="h3"] and <h3>; has an anchor
+    /// span[class="h3"] and <h3>; has an anchor
     H3(Box<str>, Box<str>),
-    // span[class="h4"] and <h4>; has an anchor
+    /// span[class="h4"] and <h4>; has an anchor
     H4(Box<str>, Box<str>),
-    // span[class="h5"] and <h5>; has an anchor
+    /// span[class="h5"] and <h5>; has an anchor
     H5(Box<str>, Box<str>),
-    // span[class="h6"] and <h6>; has an anchor
+    /// span[class="h6"] and <h6>; has an anchor
     H6(Box<str>, Box<str>),
 
-    // <span> or <a> used as location marker, optionally contains text
+    /// <span> or <a> used as location marker, optionally contains text
     Anchor(Box<str>, Option<Box<str>>),
 
     // Below are references. The first field is always the location of the
     // reference, while the second field is always the innerHTML of the original
     // <a> tag they originated from.
-
-    // e.g. [RFC1234]; saved as (1234, "RFC1234")
+    /// e.g. [RFC1234]; saved as (1234, "RFC1234")
     DocReference(u32, Box<str>),
-    // e.g. Section 3 of [RFC1234], saved as ((1234, "section-3"), "Section 3 of RFC1234")
+    /// e.g. Section 3 of [RFC1234], saved as ((1234, "section-3"), "Section 3 of RFC1234")
     CrossReference((u32, Box<str>), Box<str>),
-    // e.g. Section 3, saved as ("section-3", "Section 3")
+    /// e.g. Section 3, saved as ("section-3", "Section 3")
     SelfReference(Box<str>, Box<str>),
-    // e.g. a hyperlink to sites not covered by above, (href, title)
+    /// e.g. a hyperlink to sites not covered by above, (href, title)
     ExtReference(Box<str>, Box<str>),
 }
 
 impl Element {
-    fn is_heading(&self) -> bool {
+    pub(super) fn is_heading(&self) -> bool {
         matches!(
             self,
             Element::H1(_)
@@ -65,14 +64,24 @@ impl Element {
                 | Element::H6(_, _)
         )
     }
+
+    pub(super) fn is_reference(&self) -> bool {
+        matches!(
+            self,
+            Element::DocReference(_, _)
+                | Element::CrossReference(_, _)
+                | Element::SelfReference(_, _)
+                | Element::ExtReference(_, _)
+        )
+    }
 }
 
-pub struct Phase1Document {
+pub struct Document {
     meta_info: Vec<MetaElement>,
     elements: Vec<Element>,
 }
 
-impl Phase1Document {
+impl Document {
     pub fn from_html(html: Tree) -> Result<Self, String> {
         let mut this = Self {
             meta_info: Vec::new(),
@@ -106,9 +115,16 @@ impl Phase1Document {
                 .filter(|node| node.get("class") != Some("grey"))
             {
                 match element {
-                    Node::Raw(content) => this
-                        .elements
-                        .push(Element::Text(content.clone().into_boxed_str())),
+                    Node::Raw(content) => {
+                        if let Some(Element::Text(ref mut last)) = this.elements.last_mut() {
+                            let mut last_owned = String::from(std::mem::take(last));
+                            last_owned.push_str(content);
+                            *last = last_owned.into_boxed_str();
+                        } else {
+                            this.elements
+                                .push(Element::Text(content.clone().into_boxed_str()))
+                        }
+                    }
                     tag @ Node::Tag { name, .. } if name == "a" => {
                         let a = this.parse_a(tag)?;
                         this.elements.push(a);
@@ -130,11 +146,11 @@ impl Phase1Document {
         let mut result = String::new();
 
         result.push_str("------\n");
-        
+
         for meta in &self.meta_info {
             result.push_str(&format!("{:?}\n", meta));
         }
-        
+
         result.push_str("------\n");
 
         for element in &self.elements {
@@ -168,6 +184,25 @@ impl Phase1Document {
             }
         }
         result
+    }
+
+    pub(super) fn meta_info(&self) -> &[MetaElement] {
+        &self.meta_info
+    }
+
+    pub(super) fn elements(&self) -> &[Element] {
+        &self.elements
+    }
+
+    pub(super) fn from_raw_parts(meta_info: Vec<MetaElement>, elements: Vec<Element>) -> Self {
+        Self {
+            meta_info,
+            elements,
+        }
+    }
+
+    pub(super) fn to_raw_parts(self) -> (Vec<MetaElement>, Vec<Element>) {
+        (self.meta_info, self.elements)
     }
 
     /// This function traverses the document upwards, optionally skipping one section of
@@ -220,8 +255,10 @@ impl Phase1Document {
     fn parse_a(&mut self, node: &Node) -> Result<Element, String> {
         static DOC_REFERENCE_REGEX: LazyLock<Regex> =
             LazyLock::new(|| Regex::new(r"^./rfc(\d+)$").unwrap());
+
         static CROSS_REFERENCE_REGEX: LazyLock<Regex> =
             LazyLock::new(|| Regex::new(r"^./rfc(\d+)#(.+)$").unwrap());
+
         static SELF_REFERENCE_REGEX: LazyLock<Regex> =
             LazyLock::new(|| Regex::new(r"^#(.+)$").unwrap());
 
@@ -338,7 +375,26 @@ impl Phase1Document {
                 let inner = inner.clone().into_boxed_str();
 
                 match (attr.get("class").map(|x| x.as_str()), id) {
-                    (Some("h1"), None) => Ok(Element::H1(inner)),
+                    (Some("h1"), None) => {
+                        if let Some(Element::H1(ref mut last)) =
+                            self.find_upwards_mut(true, |el| el.is_heading())
+                        {
+                            // We find a title that is split across multiple lines:
+                            //              <span class="h1">A very long</span>
+                            //         <span class="h1">title which is split across lines</span>
+                            
+                            let mut last_owned = String::from(std::mem::take(last));
+                            last_owned.push(' ');
+                            last_owned.push_str(&inner);
+
+                            *last = last_owned.into_boxed_str();
+
+                            // Give the function something to return...
+                            Ok(self.elements.pop().unwrap())
+                        } else {
+                            Ok(Element::H1(inner))
+                        }
+                    }
                     (Some("h2"), Some(id)) => Ok(Element::H2(inner, id)),
                     (Some("h3"), Some(id)) => Ok(Element::H3(inner, id)),
                     (Some("h4"), Some(id)) => Ok(Element::H4(inner, id)),
@@ -407,8 +463,7 @@ impl Phase1Document {
                             *last = last_inner.into_boxed_str();
 
                             // Give the function something to return...
-                            let popped = self.elements.pop().unwrap();
-                            Ok(popped)
+                            Ok(self.elements.pop().unwrap())
                         } else {
                             Err("encountered <span class=\"h2...h6\"> without hyperlink"
                                 .to_string())

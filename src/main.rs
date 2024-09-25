@@ -8,9 +8,10 @@ use std::io::Read;
 use std::path::PathBuf;
 
 use argh::FromArgs;
+use document::phase2::Phase2Document;
 use document::Document;
 use html5gum::Tokenizer;
-use tree::{Node, Tree};
+use tree::Tree;
 
 #[derive(FromArgs)]
 /// A tool to prettify RFC documents.
@@ -32,7 +33,10 @@ fn main() -> Result<(), String> {
     let dom = Tree::from_tokens(Tokenizer::new(&rfc_xhtml).infallible()).unwrap();
 
     let document = Document::from_html(dom)?;
-    println!("{}", document.print());
+    // println!("{}", document.print());
+
+    let phase2 = Phase2Document::from_phase1(document)?;
+    println!("{}", phase2.print());
 
     Ok(())
 }
