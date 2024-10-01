@@ -42,13 +42,17 @@ pub(super) enum Element {
     // Below are references. The first field is always the location of the
     // reference, while the second field is always the innerHTML of the original
     // <a> tag they originated from.
-    /// e.g. [RFC1234]; saved as (1234, "RFC1234")
+    /// Reference to another RFC document.
+    /// e.g. "[RFC1234]"; saved as (1234, "RFC1234")
     DocReference(u32, Box<str>),
-    /// e.g. Section 3 of [RFC1234], saved as ((1234, "section-3"), "Section 3 of RFC1234")
+    /// Reference to a section in another RFC document.
+    /// e.g. "Section 3 of RFC1234", saved as ((1234, "section-3"), "Section 3 of RFC1234")
     CrossReference((u32, Box<str>), Box<str>),
-    /// e.g. Section 3, saved as ("section-3", "Section 3")
+    /// Reference to a section in this RFC document.
+    /// e.g. "Section 3", saved as ("section-3", "Section 3")
     SelfReference(Box<str>, Box<str>),
-    /// e.g. a hyperlink to sites not covered by above, (href, title)
+    /// Reference to another site.
+    /// e.g. "[IANA]", saved as ("example.com", "IANA")
     ExtReference(Box<str>, Box<str>),
 }
 
