@@ -18,8 +18,11 @@ pub(super) enum MetaElement {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) enum Element {
-    /// Ordinary text
-    Text(Box<str>),
+    /// Ordinary text, does not cover the whole line. Has a flag to indicate
+    /// whether it ends a line.
+    Text { text: Box<str>, ending: bool },
+    /// Ordinary text, covers a whole line on its own.
+    Line(Box<str>),
 
     // Below are the headings. The first field is always the innerHTML of the
     // heading, while the second field is its ID. <h1> doesn't have an ID.
@@ -80,6 +83,7 @@ impl Element {
     }
 }
 
+#[derive(Debug, Clone)]
 pub struct Document {
     meta_info: Vec<MetaElement>,
     elements: Vec<Element>,
@@ -120,13 +124,34 @@ impl Document {
             {
                 match element {
                     Node::Raw(content) => {
-                        if let Some(Element::Text(ref mut last)) = this.elements.last_mut() {
-                            let mut last_owned = String::from(std::mem::take(last));
-                            last_owned.push_str(content);
-                            *last = last_owned.into_boxed_str();
-                        } else {
-                            this.elements
-                                .push(Element::Text(content.clone().into_boxed_str()))
+                        let mut lines = content.lines().peekable();
+
+                        // Node::Raw may start in the middle of a line
+                        let mut in_middle = match this.elements.last() {
+                            Some(Element::Text { ending: true, .. }) => false,
+                            Some(Element::Line(_)) => false,
+                            Some(_) => true,
+                            None => false,
+                        };
+
+                        while let Some(line) = lines.next() {
+                            let is_last_line = lines.peek().is_none();
+                            let has_ending = content.ends_with('\n');
+
+                            // Does this line stop abruptly?
+                            let is_partial = is_last_line && !has_ending;
+
+                            if !is_partial && !in_middle {
+                                this.elements
+                                    .push(Element::Line(line.to_owned().into_boxed_str()));
+                            } else {
+                                this.elements.push(Element::Text {
+                                    text: line.to_owned().into_boxed_str(),
+                                    ending: !is_partial,
+                                });
+                            }
+
+                            in_middle = is_partial;
                         }
                     }
                     tag @ Node::Tag { name, .. } if name == "a" => {
@@ -157,36 +182,10 @@ impl Document {
 
         result.push_str("------\n");
 
-        for element in &self.elements {
-            match element {
-                Element::Text(txt) => result.push_str(txt),
-                Element::H1(title) => {
-                    result.push_str("# ");
-                    result.push_str(title);
-                }
-
-                Element::H2(title, id) => result.push_str(&format!("## {} #{{{}}}", title, id)),
-                Element::H3(title, id) => result.push_str(&format!("### {} #{{{}}}", title, id)),
-                Element::H4(title, id) => result.push_str(&format!("#### {} #{{{}}}", title, id)),
-                Element::H5(title, id) => result.push_str(&format!("##### {} #{{{}}}", title, id)),
-                Element::H6(title, id) => result.push_str(&format!("###### {} #{{{}}}", title, id)),
-
-                Element::Anchor(id, Some(text)) => result.push_str(&format!("${}, {}$", id, text)),
-                Element::Anchor(id, None) => result.push_str(&format!("${}$", id)),
-
-                Element::DocReference(rfc, title) => {
-                    result.push_str(&format!("[{}](^doc rfc{}^)", title, rfc))
-                }
-                Element::CrossReference((rfc, sect), title) => {
-                    result.push_str(&format!("[{}](^cross rfc{}#{}^)", title, rfc, sect))
-                }
-                Element::SelfReference(sect, title) => {
-                    result.push_str(&format!("[{}](^self #{}^)", title, sect))
-                }
-                Element::ExtReference(href, t) => result.push_str(&format!("[{}]({})", href, t)),
-                // _ => result.push_str("@"),
-            }
+        for line in self.lines() {
+            result.push_str(&format!("{}\n", line));
         }
+
         result
     }
 
@@ -209,9 +208,16 @@ impl Document {
         (self.meta_info, self.elements)
     }
 
+    pub(super) fn lines<'a>(&'a self) -> DocumentLines<'a> {
+        DocumentLines {
+            document: self,
+            start_index: 0,
+        }
+    }
+
     /// This function traverses the document upwards, optionally skipping one section of
-    /// Element::Text, if the Text contains only whitespace. If the first encountered element
-    /// is not Text and does not match predicate, None is returned
+    /// Element::Line/Text, if the Line/Text contains only whitespace. If the first
+    /// encountered element is not Text and does not match predicate, None is returned
     fn find_upwards_mut<F>(&mut self, remove_skipped: bool, predicate: F) -> Option<&mut Element>
     where
         F: Fn(&Element) -> bool,
@@ -231,25 +237,38 @@ impl Document {
             return None;
         }
 
-        let should_pop = 'outer: {
-            if let Some(Element::Text(text)) = self.elements.last()
+        let pop_count = 'outer: {
+            let mut count = 1;
+
+            while let Some(Element::Text { text, .. } | Element::Line(text)) =
+                self.elements.get(self.elements.len() - count)
+                && self.elements.len() > count + 1
                 && text.chars().all(|c| c.is_ascii_whitespace())
             {
-                if let Some(x) = self.elements.get(self.elements.len() - 2) {
-                    if predicate(x) {
-                        break 'outer true;
-                    }
+                if let Some(x) = self.elements.get(self.elements.len() - count - 1)
+                    && predicate(x)
+                {
+                    break 'outer count;
+                } else {
+                    count += 1;
+                }
+
+                // Don't want to merge headings together too aggressively
+                if count > 2 {
+                    break;
                 }
             }
 
-            false
+            0
         };
 
-        if should_pop && remove_skipped {
-            self.elements.pop();
+        if pop_count > 0 && remove_skipped {
+            for _ in 0..pop_count {
+                self.elements.pop();
+            }
             self.elements.last_mut()
-        } else if should_pop {
-            let idx = self.elements.len() - 2;
+        } else if pop_count > 0 {
+            let idx = self.elements.len() - pop_count;
             self.elements.get_mut(idx)
         } else {
             None
@@ -386,7 +405,7 @@ impl Document {
                             // We find a title that is split across multiple lines:
                             //              <span class="h1">A very long</span>
                             //         <span class="h1">title which is split across lines</span>
-                            
+
                             let mut last_owned = String::from(std::mem::take(last));
                             last_owned.push(' ');
                             last_owned.push_str(&inner);
@@ -482,5 +501,91 @@ impl Document {
 
             _ => Err("parse_span() encountered unexpected html element".into()),
         }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub(super) struct DocumentLines<'a> {
+    document: &'a Document,
+    start_index: usize,
+}
+
+impl<'a> Iterator for DocumentLines<'a> {
+    type Item = Line<'a>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let start = self.start_index;
+        let mut last = start;
+
+        if start >= self.document.elements().len() {
+            return None;
+        }
+
+        for (i, element) in self.document.elements().into_iter().enumerate().skip(start) {
+            match element {
+                Element::Line(_) if start == last => {
+                    self.start_index = i + 1;
+                    return Some(Line(&self.document.elements[start..=last]));
+                }
+                Element::Text { ending: true, .. } => {
+                    last = i;
+                    self.start_index = i + 1;
+                    return Some(Line(&self.document.elements[start..=last]));
+                }
+                _ => last = i,
+            }
+        }
+
+        self.start_index = last + 1;
+        Some(Line(&self.document.elements[start..=last]))
+    }
+}
+
+pub(super) struct Line<'a>(&'a [Element]);
+
+impl<'a> Line<'a> {
+    pub fn as_slice(&self) -> &'a [Element] {
+        self.0
+    }
+
+    pub fn depth(&self) -> u32 {
+        match &self.0 {
+            &[Element::Line(line)] => line.bytes().take_while(|b| *b != b' ').count() as u32,
+            &[Element::Text { text, .. }, ..] => {
+                text.bytes().take_while(|b| *b != b' ').count() as u32
+            }
+            _ => 0,
+        }
+    }
+
+    pub fn to_string(&self) -> String {
+        let mut result = String::with_capacity(72);
+
+        for element in self.0.iter() {
+            match element {
+                Element::Text { text, .. } => result.push_str(text),
+                Element::Line(line) => result.push_str(line),
+                Element::H1(title)
+                | Element::H2(title, _)
+                | Element::H3(title, _)
+                | Element::H4(title, _)
+                | Element::H5(title, _)
+                | Element::H6(title, _)
+                | Element::DocReference(_, title)
+                | Element::CrossReference(_, title)
+                | Element::SelfReference(_, title)
+                | Element::ExtReference(_, title)
+                | Element::Anchor(_, Some(title)) => result.push_str(title),
+                Element::Anchor(_, None) => (),
+            }
+        }
+
+        result
+    }
+}
+
+impl<'a> std::fmt::Display for Line<'a> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", Self::to_string(self))
     }
 }
