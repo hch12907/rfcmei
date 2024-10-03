@@ -39,7 +39,7 @@ impl Tree {
     #[expect(dead_code)]
     pub fn children(&self) -> &[Node] {
         match &self.root {
-            Node::Tag { inner, .. } => &inner,
+            Node::Tag { inner, .. } => inner,
 
             _ => unreachable!(),
         }
@@ -78,6 +78,7 @@ enum NodeResult {
     Nothing,
 }
 
+#[allow(unused)]
 type AttrIter<'a> = std::collections::btree_map::Iter<'a, String, String>;
 
 impl Node {
@@ -108,6 +109,7 @@ impl Node {
         }
     }
 
+    #[allow(unused)]
     pub fn attributes(&self) -> Option<AttrIter> {
         match &self {
             Node::Tag { attr, .. } => Some(attr.iter()),
@@ -117,7 +119,7 @@ impl Node {
 
     pub fn children(&self) -> &[Node] {
         match &self {
-            Node::Tag { inner, .. } => &inner,
+            Node::Tag { inner, .. } => inner,
             _ => &[],
         }
     }
@@ -150,7 +152,7 @@ impl Node {
     where
         I: Iterator<Item = Token>,
     {
-        let this = start.map(|tag| Self::normalize_start_tag(tag)).transpose();
+        let this = start.map(Self::normalize_start_tag).transpose();
         let mut this = match this {
             Ok(t) => t,
             Err(e) => return NodeResult::Err(e),
@@ -234,7 +236,7 @@ impl Node {
             Self::Tag {
                 name: this.0,
                 attr: this.1,
-                inner: inner,
+                inner,
             }
         } else if !inner.is_empty() {
             return NodeResult::Nothing;
@@ -321,7 +323,7 @@ impl<'a, 'b> Iterator for NodeAttrIter<'a, 'b> {
                             self.current_index = i + 1;
                             return Some(node);
                         }
-                        _ => return None,
+                        _ => continue
                     }
                 }
 
@@ -335,11 +337,9 @@ impl<'a, 'b> Iterator for NodeAttrIter<'a, 'b> {
                             if attr["class"].split(' ').any(|cls| cls == val) {
                                 self.current_index = i + 1;
                                 return Some(node);
-                            } else {
-                                return None;
                             }
                         }
-                        _ => return None,
+                        _ => continue,
                     }
                 }
 
