@@ -6,7 +6,7 @@
 use std::collections::BTreeMap;
 use std::sync::LazyLock;
 
-use regex::Regex;
+use regex::{Regex, RegexSet};
 
 use super::phase1::{Document as Phase1Document, Element as Phase1Element, Line, MetaElement};
 
@@ -184,11 +184,7 @@ impl Element {
 
                 assert!(start_depth > 0);
 
-                if Self::is_likely_preformatted(&line.make_string()) {
-                    let mut elements = Vec::new();
-                    Self::paragraph_from_line(&mut elements, line.as_slice(), true);
-                    Self::Preformatted { depth: 0, elements }
-                } else if let Some((style, depth)) = UnorderedListStyle::extract_from_line(start) {
+                if let Some((style, depth)) = UnorderedListStyle::extract_from_line(start) {
                     let mut elements = Vec::new();
                     elements.push(ParagraphElement::Text(
                         start[depth as usize..].trim_start().to_owned(),
@@ -224,6 +220,10 @@ impl Element {
                             },
                         )],
                     }
+                } else if Self::is_likely_preformatted(&line.make_string()) {
+                    let mut elements = Vec::new();
+                    Self::paragraph_from_line(&mut elements, line.as_slice(), true);
+                    Self::Preformatted { depth: 0, elements }
                 } else {
                     let mut elements = Vec::new();
                     elements.push(ParagraphElement::Text(trimmed_start.to_owned()));
@@ -292,7 +292,7 @@ impl Element {
 
     fn is_likely_preformatted(line: &str) -> bool {
         const GRAPHICAL_CANDIDATES: [u8; 8] = [b'-', b'+', b'/', b'_', b':', b'*', b'\\', b'|'];
-        const CODE_SCORE_THRESHOLD: usize = 800;
+        const CODE_SCORE_THRESHOLD: usize = 700;
 
         // Code blocks often have a caption towards the end.
         // Example: "Figure 1. This code does something"
@@ -306,6 +306,23 @@ impl Element {
             // Step 1 assumes the caption is center-aligned.
             Regex::new(r"^([ ]{3,})Figure \d+[:.]? \w+.*$").unwrap()
         });
+
+        // Match for something that vaguely resembles a line of C.
+        static C_CODE_REGEX: LazyLock<RegexSet> = LazyLock::new(|| {
+            RegexSet::new([
+                r"^[ ]+[a-z_][a-z0-9_]*\(.+\);",                // function call
+                r"^[ ]+while ?\(1\)",                           // while(1) loop
+                r"^[ ]+if ?\(.+\)(?: \{)?$",                    // if statement
+                r"[a-z_][a-z0-9_]* [+\-*/]=? [a-z_][a-z0-9_]*", // binary expression
+            ])
+            .unwrap()
+        });
+
+        // Look for conjunction words and make sure we don't accidentally consider
+        // a sentence like "Foo is achieved when A is found, AND\n" to
+        // be a non-sentence. But make sure there are a bunch of words preceding them.
+        static CONJUCTION_REGEX: LazyLock<Regex> =
+            LazyLock::new(|| Regex::new(r"(?:\w+? ){3,}\w+?,? (and|or|AND|OR)$").unwrap());
 
         let trimmed_line = line.trim_start_matches(' ');
         let line_depth = line.len() - trimmed_line.len();
@@ -321,16 +338,13 @@ impl Element {
 
         // See if a line is properly "ended", i.e it forms a sentence, maybe.
         let mut properly_ended = trimmed_line
-            .rfind(['.', ':', ','])
+            .rfind(['.', ':', ',', ']'])
             .map(|idx| !trimmed_line[idx + 1..].bytes().any(|b| b != b' '))
             .unwrap_or(false);
 
         // Also look for logical conjunctions.
         if !properly_ended {
-            properly_ended |= trimmed_line.ends_with(" and");
-            properly_ended |= trimmed_line.ends_with(" AND");
-            properly_ended |= trimmed_line.ends_with(" or");
-            properly_ended |= trimmed_line.ends_with(" OR");
+            properly_ended |= CONJUCTION_REGEX.is_match(trimmed_line);
         }
 
         // If the line is STILL not properly ended, it is likely to be part of a code block
@@ -360,13 +374,15 @@ impl Element {
             graphical_chars += 100;
         } else if let Some(captured) = FIGCAPTION_REGEX.captures(line) {
             let left_spaces = captured[1].len();
-            let right_spaces = 72usize.saturating_sub(line.len());
+            let whole_line = (left_spaces * 2 + trimmed_line.len()) as i32;
 
             // We want to know whether the matched figcaption is center aligned.
             // Because if not, it could very well just be a normal paragraph.
-            if left_spaces > 3 && left_spaces - 3 == right_spaces {
+            if (whole_line - 72).abs() <= 2 {
                 graphical_chars += 100;
             }
+        } else if C_CODE_REGEX.is_match(line) {
+            graphical_chars += 100;
         }
 
         // TODO: This thing is completely unscientific. Do some statistical analysis in the
@@ -575,7 +591,8 @@ impl Element {
                         if let Some(ParagraphElement::Text(text)) = elements.last()
                             && text.ends_with("\n\n")
                         {
-                            let is_code = Self::is_likely_preformatted(&full_line.make_string());
+                            let is_code =
+                                Self::is_likely_preformatted(&full_line.make_string());
 
                             if is_code {
                                 Self::paragraph_from_line(elements, full_line.as_slice(), true);
@@ -654,13 +671,19 @@ impl Element {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum OrderedListStyle {
     /// `a. Hello world!`
-    DottedLetter,
+    DottedLetterLower,
+    /// `A. Hello world!`
+    DottedLetterUpper,
     /// `1. Hello world!`
     DottedNumber,
     /// `(a) Hello world!`
-    BracketedLetter,
+    BracketedLetterLower,
+    /// `(A) Hello world!`
+    BracketedLetterUpper,
     /// `(1) Hello world!`
     BracketedNumber,
+    /// `(i) Hello world!`
+    BracketedRoman,
     /// `1 Hello world!`
     UndottedNumber,
 }
@@ -670,10 +693,13 @@ impl OrderedListStyle {
     /// require
     fn occupied_space(&self) -> u32 {
         match self {
-            OrderedListStyle::DottedLetter => 1,
+            OrderedListStyle::DottedLetterUpper => 1,
+            OrderedListStyle::DottedLetterLower => 1,
             OrderedListStyle::DottedNumber => 1,
-            OrderedListStyle::BracketedLetter => 2,
+            OrderedListStyle::BracketedLetterUpper => 2,
+            OrderedListStyle::BracketedLetterLower => 2,
             OrderedListStyle::BracketedNumber => 2,
+            OrderedListStyle::BracketedRoman => 2,
             OrderedListStyle::UndottedNumber => 0,
         }
     }
@@ -689,28 +715,42 @@ impl OrderedListStyle {
         static ORDERED_LIST_REGEX: LazyLock<Regex> = LazyLock::new(|| {
             Regex::new(
                 r#"(?x)   # this regex is whitespace-insenstive unless escaped
-                ^(?<dotLetter> [a-zA-Z])\.\  # match for dotted lists: "a. Text" or "A. Text"
+                ^(?<dotLetterUpper> [A-Z])\.\  # match for dotted lists: "A. Text"
+                |
+                ^(?<dotLetterLower> [a-z])\.\  # match for dotted lists: "a. Text"
                 |
                 ^(?<dotNumber> [0-9]+)\.\    # match for dotted lists: "1. Text"
                 |
-                ^\((?<bracket> [a-zA-Z0-9])\)\  # match for bracketed lists: "(a) Text" or "(1) Text"
+                ^\((?<bracketRoman> i|ii|iii|iv|v|vi|vii|viii|ix|x)\)\  # match for bracketed lists: "(ii) Text"
                 |
-                ^(?<none> [0-9]+?)\ \w # match for numbered lists without a dot: "1 Text"
+                ^\((?<bracketLetterUpper> [A-Z])\)\  # match for bracketed lists: "(A) Text"
+                |
+                ^\((?<bracketLetterLower> [a-z])\)\  # match for bracketed lists: "(a) Text"
+                |
+                ^\((?<bracketNumber> [0-9])\)\  # match for bracketed lists: "(1) Text"
+                |
+                ^(?<none> [0-9]+?)\ {1,3}\w # match for numbered lists without a dot: "1 Text"
             "#,
             )
             .unwrap()
         });
 
-        let is_number = |s: &str| s.as_bytes().first().unwrap_or(&b' ').is_ascii_digit();
-
         if let Some(captured) = ORDERED_LIST_REGEX.captures(line) {
-            let extracted = if let Some(dot) = captured.name("dotLetter")
+            let extracted = if let Some(dot) = captured.name("dotLetterUpper")
                 && !dot.is_empty()
             {
                 let dot = dot.as_str();
                 (
-                    Self::DottedLetter,
-                    (dot.as_bytes()[0].to_ascii_lowercase() - b'a' + 1) as u32,
+                    Self::DottedLetterUpper,
+                    (dot.as_bytes()[0] - b'A' + 1) as u32,
+                    dot,
+                    &line[dot.len() + 1..],
+                )
+            } else if let Some(dot) = captured.name("dotLetterLower") {
+                let dot = dot.as_str();
+                (
+                    Self::DottedLetterLower,
+                    (dot.as_bytes()[0] - b'a' + 1) as u32,
                     dot,
                     &line[dot.len() + 1..],
                 )
@@ -722,25 +762,57 @@ impl OrderedListStyle {
                     dot,
                     &line[dot.len() + 1..],
                 )
-            } else if let Some(bracket) = captured.name("bracket")
+            } else if let Some(bracket) = captured.name("bracketLetterUpper")
                 && !bracket.is_empty()
             {
                 let bracket = bracket.as_str();
-                if is_number(bracket) {
-                    (
-                        Self::BracketedNumber,
-                        bracket.parse::<u32>().unwrap(),
-                        bracket,
-                        &line[bracket.len() + 2..],
-                    )
-                } else {
-                    (
-                        Self::BracketedLetter,
-                        (bracket.as_bytes()[0].to_ascii_lowercase() - b'a') as u32,
-                        bracket,
-                        &line[bracket.len() + 2..],
-                    )
-                }
+                (
+                    Self::BracketedLetterUpper,
+                    (bracket.as_bytes()[0] - b'A' + 1) as u32,
+                    bracket,
+                    &line[bracket.len() + 2..],
+                )
+            } else if let Some(bracket) = captured.name("bracketLetterLower")
+                && !bracket.is_empty()
+            {
+                let bracket = bracket.as_str();
+                (
+                    Self::BracketedLetterLower,
+                    (bracket.as_bytes()[0] - b'a' + 1) as u32,
+                    bracket,
+                    &line[bracket.len() + 2..],
+                )
+            } else if let Some(bracket) = captured.name("bracketNumber")
+                && !bracket.is_empty()
+            {
+                let bracket = bracket.as_str();
+                (
+                    Self::BracketedNumber,
+                    bracket.parse::<u32>().unwrap(),
+                    bracket,
+                    &line[bracket.len() + 2..],
+                )
+            } else if let Some(bracket) = captured.name("bracketRoman") {
+                let bracket = bracket.as_str();
+                let num = match bracket {
+                    "i" => 1,
+                    "ii" => 2,
+                    "iii" => 3,
+                    "iv" => 4,
+                    "v" => 5,
+                    "vi" => 6,
+                    "vii" => 7,
+                    "viii" => 8,
+                    "ix" => 9,
+                    "x" => 10,
+                    _ => unreachable!(), // Do we need more?
+                };
+                (
+                    Self::BracketedRoman,
+                    num,
+                    bracket,
+                    &line[bracket.len() + 2..],
+                )
             } else if let Some(none) = captured.name("none")
                 && !none.is_empty()
             {
@@ -770,6 +842,8 @@ pub enum UnorderedListStyle {
     Dash,
     /// `o Hello world!`
     Round,
+    /// `+ Hello wrold!`
+    Plus,
 }
 
 impl UnorderedListStyle {
@@ -780,6 +854,7 @@ impl UnorderedListStyle {
         if trimmed_line.starts_with("- ")
             || trimmed_line.starts_with("o ")
             || trimmed_line.starts_with("* ")
+            || trimmed_line.starts_with("+ ")
         {
             let (style, actual_line) = if let Some(line) = trimmed_line.strip_prefix('*') {
                 (Self::Asterisk, line)
@@ -787,6 +862,8 @@ impl UnorderedListStyle {
                 (Self::Dash, line)
             } else if let Some(line) = trimmed_line.strip_prefix('o') {
                 (Self::Round, line)
+            } else if let Some(line) = trimmed_line.strip_prefix('+') {
+                (Self::Plus, line)
             } else {
                 unreachable!()
             };
@@ -881,60 +958,131 @@ impl Phase2Document {
     }
 
     pub fn print(&self) -> String {
-        let mut result = String::new();
+        let mut result = String::with_capacity(65536);
 
-        for section in &self.sections {
-            result.push_str("========SECTION START========\n");
-            result.push_str(&format!("id: {}\n", section.id.as_deref().unwrap_or("")));
-            result.push_str(&format!("title: {}\n", section.title));
-            result.push_str(&format!("level: {}\n", section.level + 1));
-            result.push_str("-----------------------------\n");
+        fn print_paragraph_element(element: &ParagraphElement, output: &mut String) {
+            match element {
+                ParagraphElement::Text(text) => {
+                    output.push_str(text);
+                }
+                ParagraphElement::DocReference(rfc, inner) => {
+                    output.push_str(&format!(r#"<a href="./{rfc}">{inner}</a>"#))
+                }
+                ParagraphElement::CrossReference((rfc, section), inner) => {
+                    output.push_str(&format!(r#"<a href="./{rfc}#{section}">{inner}</a>"#))
+                }
+                ParagraphElement::SelfReference(section, inner) => {
+                    output.push_str(&format!(r##"<a href="#{section}">{inner}</a>"##))
+                }
+                ParagraphElement::ExtReference(href, inner) => {
+                    output.push_str(&format!(r#"<a href="{href}">{inner}</a>"#))
+                }
+                ParagraphElement::Anchor(id, inner) => match inner {
+                    Some(text) => output.push_str(&format!(r#"<span id="{id}">{text}</span>"#)),
+                    None => output.push_str(&format!(r#"<span id="{id}"></span>"#)),
+                },
+            }
+        }
 
-            for element in &section.elements {
-                match element {
-                    Element::Paragraph {
-                        depth,
-                        elements: para_elements,
-                    } => {
-                        let depth = " ".repeat(*depth as usize);
-                        let mut was_text = true;
-                        for pel in para_elements {
-                            let mut is_text = false;
-                            match pel {
-                                ParagraphElement::Text(text) => {
-                                    if was_text {
-                                        result.push_str(&depth);
-                                    }
-                                    result.push_str(text);
-                                    is_text = true;
-                                }
-                                ParagraphElement::DocReference(rfc, title) => {
-                                    result.push_str(&format!("[{}](^doc rfc{}^)", title, rfc))
-                                }
-                                ParagraphElement::CrossReference((rfc, sect), title) => result
-                                    .push_str(&format!("[{}](^cross rfc{}#{}^)", title, rfc, sect)),
-                                ParagraphElement::SelfReference(sect, title) => {
-                                    result.push_str(&format!("[{}](^self #{}^)", title, sect))
-                                }
-                                ParagraphElement::ExtReference(href, t) => {
-                                    result.push_str(&format!("[{}]({})", href, t))
-                                }
-                                ParagraphElement::Anchor(id, Some(text)) => {
-                                    result.push_str(&format!("${}, {}$", id, text))
-                                }
-                                ParagraphElement::Anchor(id, None) => {
-                                    result.push_str(&format!("${}$", id))
-                                }
-                            }
-                            was_text = is_text;
-                        }
-                        result.push('\n');
+        fn print_element(element: &Element, outer_depth: u32, output: &mut String) {
+            match element {
+                Element::Paragraph { depth, elements } => {
+                    output.push_str(&" ".repeat((outer_depth + *depth) as usize));
+                    output.push_str("<p>");
+                    print_paragraph_element(&elements[0], output);
+                    for para_el in &elements[1..] {
+                        output.push('\n');
+                        output.push_str(&" ".repeat((outer_depth + *depth) as usize));
+                        print_paragraph_element(para_el, output);
                     }
-                    _ => todo!(),
+                    output.push_str(&" ".repeat((outer_depth + *depth) as usize));
+                    output.push_str("</p>\n");
+                }
+
+                Element::OrderedList {
+                    depth,
+                    items,
+                    style,
+                    ..
+                } => {
+                    output.push_str(&" ".repeat((outer_depth + *depth) as usize));
+                    output.push_str(&format!(
+                        "<ol type=\"{}\" start=\"{}\">\n",
+                        match style {
+                            OrderedListStyle::DottedLetterLower
+                            | OrderedListStyle::BracketedLetterLower => "a",
+                            OrderedListStyle::DottedLetterUpper
+                            | OrderedListStyle::BracketedLetterUpper => "A",
+                            OrderedListStyle::DottedNumber
+                            | OrderedListStyle::BracketedNumber
+                            | OrderedListStyle::UndottedNumber => "1",
+                            OrderedListStyle::BracketedRoman => "i",
+                        },
+                        items[0].0.unwrap()
+                    ));
+                    output.push_str(&" ".repeat((outer_depth + *depth) as usize));
+                    output.push_str("<li>\n");
+                    print_element(&items[0].1, outer_depth + *depth, output);
+                    for (marker, item) in &items[1..] {
+                        if let Some(_) = marker {
+                            output.push_str(&" ".repeat((outer_depth + *depth) as usize));
+                            output.push_str("</li>\n");
+                            output.push_str("<li>\n");
+                        }
+                        print_element(&item, outer_depth + *depth, output);
+                        output.push('\n');
+                    }
+                    output.push_str(&" ".repeat((outer_depth + *depth) as usize));
+                    output.push_str("</li>\n");
+                    output.push_str(&" ".repeat((outer_depth + *depth) as usize));
+                    output.push_str("</ol>\n");
+                }
+
+                Element::UnorderedList { depth, items, .. } => {
+                    output.push_str(&" ".repeat((outer_depth + *depth) as usize));
+                    output.push_str("<ul>\n");
+                    output.push_str(&" ".repeat((outer_depth + *depth) as usize));
+                    output.push_str("<li>\n");
+                    print_element(&items[0].1, outer_depth + *depth, output);
+                    for (marker, item) in &items[1..] {
+                        if *marker {
+                            output.push_str(&" ".repeat((outer_depth + *depth) as usize));
+                            output.push_str("</li>\n");
+                            output.push_str("<li>\n");
+                        }
+                        print_element(&item, outer_depth + *depth, output);
+                        output.push('\n');
+                    }
+                    output.push_str(&" ".repeat((outer_depth + *depth) as usize));
+                    output.push_str("</li>\n");
+                    output.push_str(&" ".repeat((outer_depth + *depth) as usize));
+                    output.push_str("</ul>\n");
+                }
+                Element::Preformatted { depth, elements } => {
+                    output.push_str(&" ".repeat((outer_depth + *depth) as usize));
+                    output.push_str("<pre>");
+                    output.push_str(&" ".repeat(*depth as usize));
+                    print_paragraph_element(&elements[0], output);
+                    for para_el in &elements[1..] {
+                        output.push_str(&" ".repeat((outer_depth + *depth) as usize));
+                        print_paragraph_element(para_el, output);
+                    }
+                    output.push_str("</pre>\n");
                 }
             }
+        }
 
-            result.push_str("=========SECTION END=========\n\n");
+        for section in &self.sections {
+            result.push_str(&format!(
+                "<h{0} id={2}>{1}</h{0}>\n",
+                section.level.max(1) + 1,
+                section.title,
+                section.id.as_deref().unwrap_or(""),
+            ));
+
+            for element in &section.elements {
+                print_element(element, 0, &mut result);
+            }
         }
 
         result
@@ -1178,7 +1326,6 @@ impl Phase2Document {
             return Err("missed date in start info".into());
         }
 
-        println!("{:#?}", this);
         Ok(this)
     }
 
