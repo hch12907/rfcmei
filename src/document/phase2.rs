@@ -1,6 +1,7 @@
-//! In this phase, analysis of text content begin. The sections are identified, the
-//! textual contents are determined to whether be paragraphs, lists (ordered or not),
-//! or preformatted sections (referred to as Code in this codebase).
+//! In this phase, analysis of text content begin. The sections are identified,
+//! the textual contents are determined to whether be paragraphs, lists (ordered
+//! or unordered), or preformatted sections. Phase 2 will produce a tree that
+//! Phase 3 consumes.
 
 use std::collections::BTreeMap;
 use std::sync::LazyLock;
@@ -82,7 +83,7 @@ impl Section {
                 }
             }
 
-            [Phase1Element::Line(_)] 
+            [Phase1Element::Line(_)]
             | [Phase1Element::Text {
                 text: _,
                 ending: false,
@@ -105,7 +106,10 @@ impl Section {
 
             xs @ [_, ..] if xs.iter().any(|x| x.is_heading()) => panic!("encountered <h1>"),
 
-            xs @ [_, ..] => panic!("encountered lines not starting with text or heading: {:?}", xs),
+            xs @ [_, ..] => panic!(
+                "encountered lines not starting with text or heading: {:?}",
+                xs
+            ),
 
             [] => panic!("encountered a completely empty line"),
         }
@@ -125,12 +129,11 @@ pub(super) enum Element {
     ///
     /// Depth is defined as number of spaces before the item marker, so
     /// `1. An item` will have a depth of 0.
-    /// 
+    ///
     /// Each item carries a 1-indexed numbering. If None, that item follows the
     /// previous item's numbering.
     OrderedList {
         depth: u32,
-        starting: u32,
         style: OrderedListStyle,
         items: Vec<(Option<u32>, Self)>,
     },
@@ -138,16 +141,17 @@ pub(super) enum Element {
     /// item may hold multiple paragraphs, hence they are made a Vec of Element.
     ///
     /// Depth is defined as number of characters before the item marker, so
-    /// 
+    /// `- An item` will have a depth of 0.
+    ///
     /// Each item carries a bool to indicate whether they have a mark.
     UnorderedList {
         depth: u32,
         style: UnorderedListStyle,
-        items: Vec<(bool, Self)>
+        items: Vec<(bool, Self)>,
     },
     /// A preformatted block of text. The newlines are all preserved in Code, but
     /// the common indentation (`min(number_of_space(line) for line in lines)`) is not.
-    Code {
+    Preformatted {
         depth: u32,
         elements: Vec<ParagraphElement>,
     },
@@ -159,14 +163,14 @@ impl Element {
             Element::Paragraph { depth, .. } => *depth,
             Element::OrderedList { depth, .. } => *depth,
             Element::UnorderedList { depth, .. } => *depth,
-            Element::Code { depth, .. } => *depth,
+            Element::Preformatted { depth, .. } => *depth,
         }
     }
 
     fn from_phase1_line(line: Line, ignore: usize) -> Self {
         match line.as_slice() {
-            [Phase1Element::Line(start), xs @ ..] |
-            [Phase1Element::Text {
+            [Phase1Element::Line(start), xs @ ..]
+            | [Phase1Element::Text {
                 text: start,
                 ending: false,
             }, xs @ ..] => {
@@ -180,22 +184,27 @@ impl Element {
 
                 assert!(start_depth > 0);
 
-                if Self::is_likely_code(&line.to_string()) {
+                if Self::is_likely_preformatted(&line.make_string()) {
                     let mut elements = Vec::new();
                     Self::paragraph_from_line(&mut elements, line.as_slice(), true);
-                    Self::Code { depth: 0, elements }
-                } else if let Some((style, depth)) = UnorderedListStyle::extract_from_line(&start) {
+                    Self::Preformatted { depth: 0, elements }
+                } else if let Some((style, depth)) = UnorderedListStyle::extract_from_line(start) {
                     let mut elements = Vec::new();
-                    elements.push(ParagraphElement::Text(start[depth as usize..].to_owned()));
+                    elements.push(ParagraphElement::Text(
+                        start[depth as usize..].trim_start().to_owned(),
+                    ));
                     Self::paragraph_from_line(&mut elements, xs, false);
 
                     Self::UnorderedList {
                         depth: start_depth,
                         style,
-                        items: vec![(true, Element::Paragraph {
-                            depth: depth - (start_depth + 1),
-                            elements,
-                        })],
+                        items: vec![(
+                            true,
+                            Element::Paragraph {
+                                depth: depth - (start_depth + 1),
+                                elements,
+                            },
+                        )],
                     }
                 } else if let Some((style, starting, _, content)) =
                     OrderedListStyle::extract_from_line(trimmed_start)
@@ -207,11 +216,13 @@ impl Element {
                     Self::OrderedList {
                         depth: start_depth,
                         style,
-                        starting,
-                        items: vec![(Some(starting), Element::Paragraph {
-                            depth: content.chars().take_while(|c| *c == ' ').count() as u32,
-                            elements,
-                        })],
+                        items: vec![(
+                            Some(starting),
+                            Element::Paragraph {
+                                depth: content.chars().take_while(|c| *c == ' ').count() as u32,
+                                elements,
+                            },
+                        )],
                     }
                 } else {
                     let mut elements = Vec::new();
@@ -240,10 +251,8 @@ impl Element {
             match p1_element {
                 Phase1Element::Text { text, ending } => {
                     let mut line = String::from(text.to_owned());
-                    if *ending {
-                        if keep_newline {
-                            line.push('\n');
-                        }
+                    if *ending && keep_newline {
+                        line.push('\n');
                     }
                     elements.push(ParagraphElement::Text(line))
                 }
@@ -265,21 +274,25 @@ impl Element {
                 Phase1Element::Anchor(id, title) => {
                     elements.push(ParagraphElement::Anchor(id.clone(), title.clone()))
                 }
-                Phase1Element::DocReference(loc, title) =>
-                    elements.push(ParagraphElement::DocReference(loc.clone(), title.clone())),
-                Phase1Element::CrossReference(loc, title) =>
-                    elements.push(ParagraphElement::CrossReference(loc.clone(), title.clone())),
-                Phase1Element::SelfReference(loc, title) =>
-                    elements.push(ParagraphElement::SelfReference(loc.clone(), title.clone())),
-                Phase1Element::ExtReference(loc, title) =>
-                    elements.push(ParagraphElement::ExtReference(loc.clone(), title.clone())),
+                Phase1Element::DocReference(loc, title) => {
+                    elements.push(ParagraphElement::DocReference(*loc, title.clone()))
+                }
+                Phase1Element::CrossReference(loc, title) => {
+                    elements.push(ParagraphElement::CrossReference(loc.clone(), title.clone()))
+                }
+                Phase1Element::SelfReference(loc, title) => {
+                    elements.push(ParagraphElement::SelfReference(loc.clone(), title.clone()))
+                }
+                Phase1Element::ExtReference(loc, title) => {
+                    elements.push(ParagraphElement::ExtReference(loc.clone(), title.clone()))
+                }
             }
         }
     }
 
-    fn is_likely_code(line: &str) -> bool {
+    fn is_likely_preformatted(line: &str) -> bool {
         const GRAPHICAL_CANDIDATES: [u8; 8] = [b'-', b'+', b'/', b'_', b':', b'*', b'\\', b'|'];
-        const CODE_SCORE_THRESHOLD: usize = 650;
+        const CODE_SCORE_THRESHOLD: usize = 800;
 
         // Code blocks often have a caption towards the end.
         // Example: "Figure 1. This code does something"
@@ -290,7 +303,7 @@ impl Element {
             // 3. Match the word after step 2.
             // 4. Match everything else until the end.
 
-            // Step 1 assumes the caption is center-aligned. 
+            // Step 1 assumes the caption is center-aligned.
             Regex::new(r"^([ ]{3,})Figure \d+[:.]? \w+.*$").unwrap()
         });
 
@@ -299,19 +312,30 @@ impl Element {
 
         // A normal paragraph starts with 3 spaces.
         let mut excessive_spaces = line_depth.saturating_sub(3);
+        let mut ending_spaces = 0;
         let mut graphical_chars = 0;
         let nonalphabet_count = trimmed_line
             .bytes()
             .map(|b| !(b.is_ascii_alphabetic() || b > 0x7F) as usize)
-            .fold(0, |acc, x| acc + x);
+            .sum::<usize>();
 
-        let properly_ended = trimmed_line
-            .rfind(&['.', ':'])
+        // See if a line is properly "ended", i.e it forms a sentence, maybe.
+        let mut properly_ended = trimmed_line
+            .rfind(['.', ':', ','])
             .map(|idx| !trimmed_line[idx + 1..].bytes().any(|b| b != b' '))
             .unwrap_or(false);
 
+        // Also look for logical conjunctions.
         if !properly_ended {
-            excessive_spaces += 72usize.saturating_sub(line.len());
+            properly_ended |= trimmed_line.ends_with(" and");
+            properly_ended |= trimmed_line.ends_with(" AND");
+            properly_ended |= trimmed_line.ends_with(" or");
+            properly_ended |= trimmed_line.ends_with(" OR");
+        }
+
+        // If the line is STILL not properly ended, it is likely to be part of a code block
+        if !properly_ended {
+            ending_spaces += 72usize.saturating_sub(line.len());
         }
 
         // Counting excessive spaces - spaces which are not inbetween two alphabetic chars
@@ -334,23 +358,23 @@ impl Element {
         // Cheats! For known patterns, we artificially inflate the score
         if trimmed_line.contains("0                   1                   2                   3") {
             graphical_chars += 100;
-        } else if trimmed_line
-            .contains("0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1")
-        {
-            graphical_chars += 100;
-        } else if let Some(captured) = FIGCAPTION_REGEX.captures(line){
+        } else if let Some(captured) = FIGCAPTION_REGEX.captures(line) {
             let left_spaces = captured[1].len();
             let right_spaces = 72usize.saturating_sub(line.len());
 
             // We want to know whether the matched figcaption is center aligned.
             // Because if not, it could very well just be a normal paragraph.
-            if left_spaces > 3 && left_spaces - 3 == right_spaces
-            {
+            if left_spaces > 3 && left_spaces - 3 == right_spaces {
                 graphical_chars += 100;
             }
         }
 
-        let score = nonalphabet_count * 10 + excessive_spaces * 30 + graphical_chars * 70;
+        // TODO: This thing is completely unscientific. Do some statistical analysis in the
+        // future
+        let score = nonalphabet_count * 10
+            + ending_spaces * 20
+            + excessive_spaces * 50
+            + graphical_chars * 70;
 
         score > CODE_SCORE_THRESHOLD
     }
@@ -361,13 +385,16 @@ impl Element {
     fn add_line(&mut self, full_line: Line, ignore: usize) -> Result<Option<Self>, String> {
         match full_line.as_slice() {
             [Phase1Element::Line(line), xs @ ..]
-            | [Phase1Element::Text { text: line, ending: false }, xs @ ..] => {
+            | [Phase1Element::Text {
+                text: line,
+                ending: false,
+            }, xs @ ..] => {
                 let line = &line[ignore..];
                 let trimmed_line = line.trim_start();
                 let line_depth = (line.len() - trimmed_line.len()) as u32;
 
                 match self {
-                    Element::Paragraph { depth, elements } if elements.is_empty() => {
+                    Element::Paragraph { elements, .. } if elements.is_empty() => {
                         let parsed_line = Self::from_phase1_line(full_line, ignore);
 
                         match parsed_line {
@@ -375,11 +402,6 @@ impl Element {
                                 elements: new_elements,
                                 ..
                             } => {
-                                if line_depth != *depth && line_depth != *depth + 3 && *depth != 0 {
-                                    eprintln!("warning: starting with an unaligned paragraph {:?}", line);
-                                    *depth = line_depth;
-                                }
-
                                 *elements = new_elements;
                                 Ok(None)
                             }
@@ -388,26 +410,19 @@ impl Element {
                         }
                     }
 
-                    Element::Paragraph {
-                        depth, elements, ..
-                    } => {
-                        if line_depth != *depth && line_depth != *depth + 3 {
-                            // eprintln!("warning: got an unaligned paragraph {:?}", line); TODO reenable
-                        }
-
+                    Element::Paragraph { elements, .. } => {
                         if let Some(text @ ParagraphElement::Text(_)) = elements.last_mut() {
                             text.add_line(line)?;
                             Self::paragraph_from_line(elements, xs, false);
                             Ok(None)
                         } else {
-                            Self::paragraph_from_line(elements, &full_line.as_slice(), false);
+                            Self::paragraph_from_line(elements, full_line.as_slice(), false);
                             Ok(None)
                         }
                     }
 
                     Element::OrderedList {
                         depth,
-                        starting: _,
                         style,
                         items,
                     } => {
@@ -418,33 +433,36 @@ impl Element {
                             // Allow some tolerance for cmp(depth, item_depth)...
                             let depth_difference = line_depth as i32 - *depth as i32;
 
-                            let content_depth = content.chars().take_while(|c| *c == ' ').count() as u32;
+                            let content_depth =
+                                content.chars().take_while(|c| *c == ' ').count() as u32;
                             let content = content.trim_start();
-                            let content_start = *depth + marker.len() as u32 + item_style.occupied_space();
+                            let content_start =
+                                *depth + marker.len() as u32 + item_style.occupied_space();
 
                             if depth_difference.abs() <= 1 {
                                 // depth == line_depth
 
-                                let mut elements = vec![
-                                    ParagraphElement::Text(content.into())
-                                ];
+                                let mut elements = vec![ParagraphElement::Text(content.into())];
                                 Self::paragraph_from_line(&mut elements, xs, false);
 
-                                items.push((Some(num), Element::Paragraph {
-                                    depth: content_depth,
-                                    elements,
-                                }));
+                                items.push((
+                                    Some(num),
+                                    Element::Paragraph {
+                                        depth: content_depth,
+                                        elements,
+                                    },
+                                ));
 
                                 Ok(None)
                             } else if depth_difference < -1 {
                                 // line_depth < depth
-                                Ok(Some(
-                                    Self::from_phase1_line(full_line, ignore)
-                                ))
+                                Ok(Some(Self::from_phase1_line(full_line, ignore)))
                             } else {
                                 // line_depth > depth
                                 let el = &mut items.last_mut().unwrap().1;
-                                if let Some(new_el) = el.add_line(full_line, ignore + content_start as usize)? {
+                                if let Some(new_el) =
+                                    el.add_line(full_line, ignore + content_start as usize)?
+                                {
                                     items.push((None, new_el));
                                 }
 
@@ -452,28 +470,31 @@ impl Element {
                             }
                         } else {
                             let inner_depth = items.last().map(|item| item.1.depth()).unwrap();
-                            
-                            // Assumption: marker numbering takes one char 
+
+                            // Assumption: marker numbering takes one char
                             let content_start = *depth + style.occupied_space() + 1;
-                            let depth_difference = line_depth as i32 - (content_start + inner_depth) as i32;
+                            let depth_difference =
+                                line_depth as i32 - (content_start + inner_depth) as i32;
 
                             if depth_difference.abs() <= 1 {
                                 // (content_start + inner_depth) == line_depth
                                 let el = &mut items.last_mut().unwrap().1;
-                                if let Some(new_el) = el.add_line(full_line, ignore + content_start as usize)? {
+                                if let Some(new_el) =
+                                    el.add_line(full_line, ignore + content_start as usize)?
+                                {
                                     items.push((None, new_el));
                                 }
 
                                 Ok(None)
                             } else if depth_difference < -1 {
                                 // line_depth < (content_start + inner_depth)
-                                Ok(Some(
-                                    Self::from_phase1_line(full_line, ignore)
-                                ))
+                                Ok(Some(Self::from_phase1_line(full_line, ignore)))
                             } else {
                                 // line_depth > (content_start + inner_depth)
                                 let el = &mut items.last_mut().unwrap().1;
-                                if let Some(new_el) = el.add_line(full_line, ignore + content_start as usize)? {
+                                if let Some(new_el) =
+                                    el.add_line(full_line, ignore + content_start as usize)?
+                                {
                                     items.push((None, new_el));
                                 }
 
@@ -482,33 +503,40 @@ impl Element {
                         }
                     }
 
-                    Element::UnorderedList { depth, style, items } => {
-                        if let Some((item_style, item_depth)) = UnorderedListStyle::extract_from_line(line)
+                    Element::UnorderedList {
+                        depth,
+                        style,
+                        items,
+                    } => {
+                        if let Some((item_style, item_depth)) =
+                            UnorderedListStyle::extract_from_line(line)
                             && *style == item_style
                         {
                             let content_start = *depth + 1;
                             let content = &line[item_depth as usize..];
 
                             if *depth == line_depth {
-                                let mut elements = vec![
-                                    ParagraphElement::Text(content.trim_start().into())
-                                ];
+                                let mut elements =
+                                    vec![ParagraphElement::Text(content.trim_start().into())];
                                 Self::paragraph_from_line(&mut elements, xs, false);
 
-                                items.push((true, Element::Paragraph {
-                                    depth: item_depth - content_start,
-                                    elements,
-                                }));
+                                items.push((
+                                    true,
+                                    Element::Paragraph {
+                                        depth: item_depth - content_start,
+                                        elements,
+                                    },
+                                ));
 
                                 Ok(None)
                             } else if line_depth < *depth {
-                                Ok(Some(
-                                    Self::from_phase1_line(full_line, ignore)
-                                ))
+                                Ok(Some(Self::from_phase1_line(full_line, ignore)))
                             } else {
                                 // line_depth > depth
                                 let el = &mut items.last_mut().unwrap().1;
-                                if let Some(new_el) = el.add_line(full_line, ignore + content_start as usize)? {
+                                if let Some(new_el) =
+                                    el.add_line(full_line, ignore + content_start as usize)?
+                                {
                                     items.push((false, new_el));
                                 }
 
@@ -520,32 +548,34 @@ impl Element {
 
                             if content_start + inner_depth == line_depth {
                                 let el = &mut items.last_mut().unwrap().1;
-                                if let Some(new_el) = el.add_line(full_line, ignore + content_start as usize)? {
+                                if let Some(new_el) =
+                                    el.add_line(full_line, ignore + content_start as usize)?
+                                {
                                     items.push((false, new_el));
                                 }
 
                                 Ok(None)
                             } else if line_depth < content_start + inner_depth {
-                                Ok(Some(
-                                    Self::from_phase1_line(full_line, ignore)
-                                ))
+                                Ok(Some(Self::from_phase1_line(full_line, ignore)))
                             } else {
                                 // line_depth > content_start + inner_depth
                                 let el = &mut items.last_mut().unwrap().1;
-                                if let Some(new_el) = el.add_line(full_line, ignore + content_start as usize)? {
+                                if let Some(new_el) =
+                                    el.add_line(full_line, ignore + content_start as usize)?
+                                {
                                     items.push((false, new_el));
                                 }
 
                                 Ok(None)
                             }
                         }
-                    },
+                    }
 
-                    Element::Code { depth: _, elements } => {
+                    Element::Preformatted { depth: _, elements } => {
                         if let Some(ParagraphElement::Text(text)) = elements.last()
                             && text.ends_with("\n\n")
                         {
-                            let is_code = Self::is_likely_code(&full_line.to_string());
+                            let is_code = Self::is_likely_preformatted(&full_line.make_string());
 
                             if is_code {
                                 Self::paragraph_from_line(elements, full_line.as_slice(), true);
@@ -603,8 +633,8 @@ impl Element {
                 None
             }
 
-            // For Code, the newline is kept
-            Element::Code {
+            // For preformatted sections, the newline is kept
+            Element::Preformatted {
                 ref mut elements, ..
             } => {
                 if let Some(ParagraphElement::Text(ref mut text)) = elements.last_mut() {
@@ -671,7 +701,7 @@ impl OrderedListStyle {
             .unwrap()
         });
 
-        let is_number = |s: &str| (b'0'..=b'9').contains(s.as_bytes().first().unwrap_or(&b' '));
+        let is_number = |s: &str| s.as_bytes().first().unwrap_or(&b' ').is_ascii_digit();
 
         if let Some(captured) = ORDERED_LIST_REGEX.captures(line) {
             let extracted = if let Some(dot) = captured.name("dotLetter")
@@ -734,8 +764,11 @@ impl OrderedListStyle {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum UnorderedListStyle {
+    /// `* Hello world!`
     Asterisk,
+    /// `- Hello world!`
     Dash,
+    /// `o Hello world!`
     Round,
 }
 
@@ -758,6 +791,7 @@ impl UnorderedListStyle {
                 unreachable!()
             };
 
+            let actual_line = actual_line.trim_start_matches(' ');
             let line_depth = (line.len() - actual_line.len()) as u32;
 
             Some((style, line_depth))
@@ -798,7 +832,7 @@ impl ParagraphElement {
 
                 let has_hyphened_word = text.len() + first_word_len >= 72
                     && text.ends_with('-')
-                    && (b'a'..=b'z').contains(&text.as_bytes()[text.as_bytes().len() - 2]);
+                    && text.as_bytes()[text.as_bytes().len() - 2].is_ascii_lowercase();
 
                 if !has_hyphened_word {
                     text.push(' ');
@@ -843,7 +877,7 @@ impl Phase2Document {
 
         this.sections = this.parse_sections(&document)?;
 
-        Ok(this)
+        Ok(this.postprocess_document())
     }
 
     pub fn print(&self) -> String {
@@ -909,7 +943,7 @@ impl Phase2Document {
     // The preprocessing here removes page boundaries (`<span id="page-N">`) and
     // excessive newlines created by those boundaries.
     fn preprocess_phase1(document: Phase1Document) -> Result<Phase1Document, String> {
-        let (meta_info, mut elements) = document.to_raw_parts();
+        let (meta_info, mut elements) = document.into_raw_parts();
 
         // Remove all elements before <h1> and also itself (and the following newline)
         if let Some(pos) = elements.iter().position(|el| el.is_heading()) {
@@ -1034,7 +1068,7 @@ impl Phase2Document {
                         }
                     }
 
-                    let end_text = end_text.strip_prefix(',').unwrap_or(&end_text);
+                    let end_text = end_text.strip_prefix(',').unwrap_or(end_text);
                     if end_text.starts_with(&spaces) {
                         right_column.push(end_text.trim_start());
                     }
@@ -1051,7 +1085,7 @@ impl Phase2Document {
         let stream_regex = Regex::new(r"^((?:\w+ )+(?:\w+|\([A-Z]+\)))").unwrap();
 
         // RFC streams, some kinda namespace
-        if let Some(Phase1Element::Line(text)) = left_column.get(0)
+        if let Some(Phase1Element::Line(text)) = left_column.first()
             && let Some(captured) = stream_regex.captures(text)
         {
             this.stream = captured[1].to_owned().into_boxed_str();
@@ -1166,5 +1200,87 @@ impl Phase2Document {
 
         sections.push(current_section);
         Ok(sections)
+    }
+
+    fn postprocess_document(mut self) -> Self {
+        fn postprocess_element(element: &mut Element) -> bool {
+            match element {
+                Element::Paragraph { elements, .. } if elements.is_empty() => false,
+                Element::OrderedList { items, .. } => {
+                    items.retain_mut(|item| postprocess_element(&mut item.1));
+                    true
+                }
+                Element::UnorderedList { items, .. } => {
+                    items.retain_mut(|item| postprocess_element(&mut item.1));
+                    true
+                }
+                Element::Preformatted { elements, .. } => {
+                    if let Some(ParagraphElement::Text(text)) = elements.last_mut()
+                        && text.ends_with("\n\n")
+                    {
+                        text.pop();
+                    }
+                    true
+                }
+                _ => true,
+            }
+        }
+
+        // Remove empty paragraphs
+        for section in &mut self.sections {
+            section.elements.retain_mut(postprocess_element);
+        }
+
+        for section in &mut self.sections {
+            for element in &mut section.elements {
+                if let Element::Preformatted {
+                    depth,
+                    elements: code_elements,
+                } = element
+                {
+                    let mut min_ident = match &code_elements[0] {
+                        ParagraphElement::Text(text) => {
+                            text.chars().take_while(|c| *c == ' ').count()
+                        }
+                        _ => continue,
+                    };
+
+                    let mut was_end = true;
+                    for code_element in &code_elements[1..] {
+                        match code_element {
+                            ParagraphElement::Text(text) if was_end => {
+                                min_ident =
+                                    min_ident.min(text.chars().take_while(|c| *c == ' ').count());
+                            }
+                            ParagraphElement::Text(text) => {
+                                if text.ends_with("\n") {
+                                    was_end = true
+                                }
+                            }
+                            _ => was_end = false,
+                        };
+                    }
+
+                    let mut was_end = true;
+                    for code_element in code_elements.iter_mut() {
+                        match code_element {
+                            ParagraphElement::Text(text) if was_end => {
+                                *text = text[min_ident..].to_string();
+                            }
+                            ParagraphElement::Text(text) => {
+                                if text.ends_with("\n") {
+                                    was_end = true
+                                }
+                            }
+                            _ => was_end = false,
+                        }
+                    }
+
+                    *depth = min_ident as u32;
+                }
+            }
+        }
+
+        self
     }
 }

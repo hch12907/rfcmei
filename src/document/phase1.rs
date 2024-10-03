@@ -1,7 +1,7 @@
 //! In the first phase, HTML elements of the original RFC document are largely
 //! degenerated. Only the most important tags (<meta>, <pre>, <a>, <span>) are
-//! retained and in some cases the tags are merged. The contents are not analysed.
-//!
+//! retained and in some cases the tags are merged. Phase 1 will be consumed by
+//! Phase 2 on a line-by-line basis. The contents are not analysed.
 
 use std::sync::LazyLock;
 
@@ -182,8 +182,8 @@ impl Document {
 
         result.push_str("------\n");
 
-        for line in self.lines() {
-            result.push_str(&format!("{}\n", line));
+        for (i, line) in self.lines().enumerate() {
+            result.push_str(&format!("Line #{}:\t{}\n", i + 1, line));
         }
 
         result
@@ -204,11 +204,11 @@ impl Document {
         }
     }
 
-    pub(super) fn to_raw_parts(self) -> (Vec<MetaElement>, Vec<Element>) {
+    pub(super) fn into_raw_parts(self) -> (Vec<MetaElement>, Vec<Element>) {
         (self.meta_info, self.elements)
     }
 
-    pub(super) fn lines<'a>(&'a self) -> DocumentLines<'a> {
+    pub(super) fn lines(&self) -> DocumentLines<'_> {
         DocumentLines {
             document: self,
             start_index: 0,
@@ -293,10 +293,10 @@ impl Document {
                     if attr.contains_key("id") && inner.len() <= 1 {
                         let id = attr["id"].clone().into_boxed_str();
 
-                        return if let Some(Node::Raw(inner)) = inner.get(0) {
+                        return if let Some(Node::Raw(inner)) = inner.first() {
                             let inner = inner.clone().into_boxed_str();
                             Ok(Element::Anchor(id, Some(inner)))
-                        } else if let None = inner.get(0) {
+                        } else if inner.first().is_none() {
                             Ok(Element::Anchor(id, None))
                         } else {
                             Err("unexpected nested tag in anchor <a>".to_string())
@@ -356,7 +356,7 @@ impl Document {
             Node::Tag { name, attr, inner } if name == "span" => {
                 // Some spans are empty and serve a single purpose: anchor, aka fragment
                 // identifier.
-                if inner.len() == 0 && attr.contains_key("id") && !attr.contains_key("class") {
+                if inner.is_empty() && attr.contains_key("id") && !attr.contains_key("class") {
                     let id = attr["id"].clone().into_boxed_str();
                     return Ok(Element::Anchor(id, None));
                 }
@@ -451,7 +451,7 @@ impl Document {
                             // (4) the next line has spaces for text alignment
                             //
                             // Below, "fl" means first line, "nl" means second line.
-                            let inner = if let Some(section) = id.split('-').skip(1).next()
+                            let inner = if let Some(section) = id.split('-').nth(1)
                                 && last.starts_with(section)
                             {
                                 let fl_without_section = last
@@ -461,7 +461,7 @@ impl Document {
                                     .unwrap();
 
                                 let fl_cleared =
-                                    fl_without_section.trim_start_matches(|c| c == ' ');
+                                    fl_without_section.trim_start_matches(' ');
 
                                 let cleared_len = last.len() - fl_cleared.len();
 
@@ -482,7 +482,7 @@ impl Document {
                             // Insert a space to accomodate for the newline we removed
                             let mut last_inner = String::from(std::mem::take(last));
                             last_inner.push(' ');
-                            last_inner.push_str(&inner);
+                            last_inner.push_str(inner);
                             *last = last_inner.into_boxed_str();
 
                             // Give the function something to return...
@@ -521,7 +521,7 @@ impl<'a> Iterator for DocumentLines<'a> {
             return None;
         }
 
-        for (i, element) in self.document.elements().into_iter().enumerate().skip(start) {
+        for (i, element) in self.document.elements().iter().enumerate().skip(start) {
             match element {
                 Element::Line(_) if start == last => {
                     self.start_index = i + 1;
@@ -548,17 +548,18 @@ impl<'a> Line<'a> {
         self.0
     }
 
+    #[allow(unused)]
     pub fn depth(&self) -> u32 {
-        match &self.0 {
-            &[Element::Line(line)] => line.bytes().take_while(|b| *b != b' ').count() as u32,
-            &[Element::Text { text, .. }, ..] => {
+        match self.0 {
+            [Element::Line(line)] => line.bytes().take_while(|b| *b != b' ').count() as u32,
+            [Element::Text { text, .. }, ..] => {
                 text.bytes().take_while(|b| *b != b' ').count() as u32
             }
             _ => 0,
         }
     }
 
-    pub fn to_string(&self) -> String {
+    pub fn make_string(&self) -> String {
         let mut result = String::with_capacity(72);
 
         for element in self.0.iter() {
@@ -586,6 +587,6 @@ impl<'a> Line<'a> {
 
 impl<'a> std::fmt::Display for Line<'a> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", Self::to_string(self))
+        write!(f, "{}", Self::make_string(self))
     }
 }
