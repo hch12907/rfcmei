@@ -35,6 +35,10 @@ pub struct Section {
 }
 
 impl Section {
+    pub fn into_raw_parts(self) -> (Option<Box<str>>, usize, Box<str>, Vec<Element>) {
+        (self.id, self.level, self.title, self.elements)
+    }
+
     fn add_line(&mut self, line: Line) -> Result<Option<Self>, String> {
         match line.as_slice() {
             [Phase1Element::H2(title, id)
@@ -953,7 +957,11 @@ impl Phase2Document {
 
         this.sections = this.parse_sections(&document)?;
 
-        Ok(this.postprocess_document())
+        Ok(this.cleanup_document())
+    }
+
+    pub fn into_raw_parts(self) -> (StartInfo, Box<str>, Vec<Section>) {
+        (self.start_info, self.title, self.sections)
     }
 
     pub fn print(&self) -> String {
@@ -1023,12 +1031,12 @@ impl Phase2Document {
                     output.push_str("<li>\n");
                     print_element(&items[0].1, outer_depth + *depth, output);
                     for (marker, item) in &items[1..] {
-                        if let Some(_) = marker {
+                        if marker.is_some() {
                             output.push_str(&" ".repeat((outer_depth + *depth) as usize));
                             output.push_str("</li>\n");
                             output.push_str("<li>\n");
                         }
-                        print_element(&item, outer_depth + *depth, output);
+                        print_element(item, outer_depth + *depth, output);
                         output.push('\n');
                     }
                     output.push_str(&" ".repeat((outer_depth + *depth) as usize));
@@ -1049,7 +1057,7 @@ impl Phase2Document {
                             output.push_str("</li>\n");
                             output.push_str("<li>\n");
                         }
-                        print_element(&item, outer_depth + *depth, output);
+                        print_element(item, outer_depth + *depth, output);
                         output.push('\n');
                     }
                     output.push_str(&" ".repeat((outer_depth + *depth) as usize));
@@ -1072,6 +1080,9 @@ impl Phase2Document {
         }
 
         for section in &self.sections {
+            if section.title.to_ascii_lowercase().contains("table of contents") {
+                continue
+            }
             result.push_str(&format!(
                 "<h{0} id={2}>{1}</h{0}>\n",
                 section.level.max(1) + 1,
@@ -1143,6 +1154,83 @@ impl Phase2Document {
                 Phase1Element::Anchor(id, text) if id.starts_with("page") && text.is_none()
             )
         });
+
+        // Try to merge multi-line headings that were missed during phase 1.
+        let mut i = 0;
+        while i < elements.len() {
+            let merge_with = if let Phase1Element::H2(this, id)
+                | Phase1Element::H3(this, id)
+                | Phase1Element::H4(this, id)
+                | Phase1Element::H5(this, id)
+                | Phase1Element::H6(this, id)
+             = &elements[i] {
+                let reasonable_start = if let Some(appendix) = id.strip_prefix("appendix-") {
+                    "Appendix ".len() + appendix.len()
+                } else if let Some(section) = id.strip_prefix("section-") {
+                    section.len()
+                } else {
+                    0
+                };
+
+                let next_element = if let Some(Phase1Element::Text { text, ending: true }) = elements.get(i + 1)
+                    && text.is_empty()
+                {
+                    i + 2
+                } else {
+                    i // The current element is guaranteed to fail the test.
+                };
+
+                if let Some(title_start) = this.find(". ")
+                    && (title_start as i32 - reasonable_start as i32).abs() <= 1
+                {
+                    let required_spaces = title_start + 1 + this[title_start + 1..]
+                        .chars()
+                        .take_while(|c| *c == ' ')
+                        .count();
+
+                    if let Some(Phase1Element::Line(next)) = elements.get(next_element) {
+                        let spaces = next
+                            .chars()
+                            .take_while(|c| *c == ' ')
+                            .count();
+
+                        (required_spaces == spaces).then_some(next_element)
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                }
+            } else {
+                None
+            };
+
+            if let Some(merge_with) = merge_with {
+                let merge = elements.remove(merge_with);
+
+                if let Phase1Element::H2(this, _)
+                    | Phase1Element::H3(this, _)
+                    | Phase1Element::H4(this, _)
+                    | Phase1Element::H5(this, _)
+                    | Phase1Element::H6(this, _)
+                = &mut elements[i] {
+                    let mut this_owned = String::from(std::mem::take(this));
+                    this_owned.push(' ');
+
+                    if let Phase1Element::Line(line) = merge {
+                        this_owned.push_str(line.trim_start());
+                    } else {
+                        unreachable!();
+                    }
+
+                    *this = this_owned.into_boxed_str();
+                } else {
+                    unreachable!();
+                }
+            }
+
+            i += 1
+        }
 
         Ok(Phase1Document::from_raw_parts(meta_info, elements))
     }
@@ -1348,16 +1436,16 @@ impl Phase2Document {
         Ok(sections)
     }
 
-    fn postprocess_document(mut self) -> Self {
-        fn postprocess_element(element: &mut Element) -> bool {
+    fn cleanup_document(mut self) -> Self {
+        fn cleanup_element(element: &mut Element) -> bool {
             match element {
                 Element::Paragraph { elements, .. } if elements.is_empty() => false,
                 Element::OrderedList { items, .. } => {
-                    items.retain_mut(|item| postprocess_element(&mut item.1));
+                    items.retain_mut(|item| cleanup_element(&mut item.1));
                     true
                 }
                 Element::UnorderedList { items, .. } => {
-                    items.retain_mut(|item| postprocess_element(&mut item.1));
+                    items.retain_mut(|item| cleanup_element(&mut item.1));
                     true
                 }
                 Element::Preformatted { elements, .. } => {
@@ -1374,7 +1462,7 @@ impl Phase2Document {
 
         // Remove empty paragraphs
         for section in &mut self.sections {
-            section.elements.retain_mut(postprocess_element);
+            section.elements.retain_mut(cleanup_element);
         }
 
         for section in &mut self.sections {
