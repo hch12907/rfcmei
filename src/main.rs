@@ -36,7 +36,7 @@ fn main() -> Result<(), String> {
     // println!("{}", document.print());
 
     let phase2 = Phase2Document::from_phase1(document)?;
-    println!("{:#?}", phase2);
+    // println!("{:#?}", phase2);
     println!("{}", phase2.print());
 
     Ok(())
