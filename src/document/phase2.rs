@@ -899,17 +899,16 @@ impl ParagraphElement {
     fn add_line(&mut self, line: &str) -> Result<(), String> {
         match self {
             ParagraphElement::Text(ref mut text) => {
-                let first_word_len = line
-                    .trim_start()
-                    .split(&[' ', ',', '.'])
-                    .next()
-                    .filter(|word| word.chars().all(|c| c.is_ascii_alphanumeric()))
-                    .map(|word| word.len())
-                    .unwrap_or(0);
+                // let first_word_len = line
+                //     .trim_start()
+                //     .split(&[' ', ',', '.'])
+                //     .next()
+                //     .filter(|word| word.chars().all(|c| c.is_ascii_alphanumeric()))
+                //     .map(|word| word.len())
+                //     .unwrap_or(0);
 
-                let has_hyphened_word = text.len() + first_word_len >= 72
-                    && text.ends_with('-')
-                    && text.as_bytes()[text.as_bytes().len() - 2].is_ascii_lowercase();
+                let has_hyphened_word = text.ends_with('-')
+                    && text.as_bytes()[text.as_bytes().len() - 2].is_ascii_alphabetic();
 
                 if !has_hyphened_word {
                     text.push(' ');
