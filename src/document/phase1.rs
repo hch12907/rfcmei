@@ -24,23 +24,24 @@ pub(super) enum Element {
     /// Ordinary text, covers a whole line on its own.
     Line(Box<str>),
 
-    // Below are the headings. The first field is always the innerHTML of the
-    // heading, while the second field is its ID. <h1> doesn't have an ID.
-    /// span[class="h1"] and <h1>
-    H1(Box<str>),
-    /// span[class="h2"] and <h2>; has an anchor
-    H2(Box<str>, Box<str>),
-    /// span[class="h3"] and <h3>; has an anchor
-    H3(Box<str>, Box<str>),
-    /// span[class="h4"] and <h4>; has an anchor
-    H4(Box<str>, Box<str>),
-    /// span[class="h5"] and <h5>; has an anchor
-    H5(Box<str>, Box<str>),
-    /// span[class="h6"] and <h6>; has an anchor
-    H6(Box<str>, Box<str>),
+    /// `span[class="h1"]` and `<h1>`. Does not come with an anchor.
+    H1 { title: Box<str> },
+    /// `span[class="h2"]` and `<h2>`. Comes with an anchor.
+    H2 { title: Box<str>, id: Box<str> },
+    /// `span[class="h3"]` and `<h3>`. Comes with an anchor.
+    H3 { title: Box<str>, id: Box<str> },
+    /// `span[class="h4"]` and `<h4>`. Comes with an anchor.
+    H4 { title: Box<str>, id: Box<str> },
+    /// `span[class="h5"]` and `<h5>`. Comes with an anchor.
+    H5 { title: Box<str>, id: Box<str> },
+    /// `span[class="h6"]` and `<h6>`. Comes with an anchor.
+    H6 { title: Box<str>, id: Box<str> },
 
     /// <span> or <a> used as location marker, optionally contains text
-    Anchor(Box<str>, Option<Box<str>>),
+    Anchor {
+        id: Box<str>,
+        text: Option<Box<str>>,
+    },
 
     // Below are references. The first field is always the location of the
     // reference, while the second field is always the innerHTML of the original
@@ -63,12 +64,12 @@ impl Element {
     pub(super) fn is_heading(&self) -> bool {
         matches!(
             self,
-            Element::H1(_)
-                | Element::H2(_, _)
-                | Element::H3(_, _)
-                | Element::H4(_, _)
-                | Element::H5(_, _)
-                | Element::H6(_, _)
+            Element::H1 { .. }
+                | Element::H2 { .. }
+                | Element::H3 { .. }
+                | Element::H4 { .. }
+                | Element::H5 { .. }
+                | Element::H6 { .. }
         )
     }
 
@@ -295,9 +296,12 @@ impl Document {
 
                         return if let Some(Node::Raw(inner)) = inner.first() {
                             let inner = inner.clone().into_boxed_str();
-                            Ok(Element::Anchor(id, Some(inner)))
+                            Ok(Element::Anchor {
+                                id,
+                                text: Some(inner),
+                            })
                         } else if inner.first().is_none() {
-                            Ok(Element::Anchor(id, None))
+                            Ok(Element::Anchor { id, text: None })
                         } else {
                             Err("unexpected nested tag in anchor <a>".to_string())
                         };
@@ -358,7 +362,7 @@ impl Document {
                 // identifier.
                 if inner.is_empty() && attr.contains_key("id") && !attr.contains_key("class") {
                     let id = attr["id"].clone().into_boxed_str();
-                    return Ok(Element::Anchor(id, None));
+                    return Ok(Element::Anchor { id, text: None });
                 }
 
                 // The section titles in RFC documents have an index number that
@@ -399,8 +403,9 @@ impl Document {
 
                 match (attr.get("class").map(|x| x.as_str()), id) {
                     (Some("h1"), None) => {
-                        if let Some(Element::H1(ref mut last)) =
-                            self.find_upwards_mut(true, |el| el.is_heading())
+                        if let Some(Element::H1 {
+                            title: ref mut last,
+                        }) = self.find_upwards_mut(true, |el| el.is_heading())
                         {
                             // We find a title that is split across multiple lines:
                             //              <span class="h1">A very long</span>
@@ -415,14 +420,14 @@ impl Document {
                             // Give the function something to return...
                             Ok(self.elements.pop().unwrap())
                         } else {
-                            Ok(Element::H1(inner))
+                            Ok(Element::H1 { title: inner })
                         }
                     }
-                    (Some("h2"), Some(id)) => Ok(Element::H2(inner, id)),
-                    (Some("h3"), Some(id)) => Ok(Element::H3(inner, id)),
-                    (Some("h4"), Some(id)) => Ok(Element::H4(inner, id)),
-                    (Some("h5"), Some(id)) => Ok(Element::H5(inner, id)),
-                    (Some("h6"), Some(id)) => Ok(Element::H6(inner, id)),
+                    (Some("h2"), Some(id)) => Ok(Element::H2 { title: inner, id }),
+                    (Some("h3"), Some(id)) => Ok(Element::H3 { title: inner, id }),
+                    (Some("h4"), Some(id)) => Ok(Element::H4 { title: inner, id }),
+                    (Some("h5"), Some(id)) => Ok(Element::H5 { title: inner, id }),
+                    (Some("h6"), Some(id)) => Ok(Element::H6 { title: inner, id }),
 
                     (Some("h1"), Some(_)) => {
                         Err("encountered <span class=\"h1\"> with hyperlink".to_string())
@@ -436,11 +441,26 @@ impl Document {
                         //
                         // We want to merge them back.
                         if let Some(
-                            Element::H2(ref mut last, id)
-                            | Element::H3(ref mut last, id)
-                            | Element::H4(ref mut last, id)
-                            | Element::H5(ref mut last, id)
-                            | Element::H6(ref mut last, id),
+                            Element::H2 {
+                                title: ref mut last,
+                                id,
+                            }
+                            | Element::H3 {
+                                title: ref mut last,
+                                id,
+                            }
+                            | Element::H4 {
+                                title: ref mut last,
+                                id,
+                            }
+                            | Element::H5 {
+                                title: ref mut last,
+                                id,
+                            }
+                            | Element::H6 {
+                                title: ref mut last,
+                                id,
+                            },
                         ) = self.find_upwards_mut(true, |el| el.is_heading())
                         {
                             // ASSUME:
@@ -460,8 +480,7 @@ impl Document {
                                     .strip_prefix(". ")
                                     .unwrap();
 
-                                let fl_cleared =
-                                    fl_without_section.trim_start_matches(' ');
+                                let fl_cleared = fl_without_section.trim_start_matches(' ');
 
                                 let cleared_len = last.len() - fl_cleared.len();
 
@@ -566,18 +585,20 @@ impl<'a> Line<'a> {
             match element {
                 Element::Text { text, .. } => result.push_str(text),
                 Element::Line(line) => result.push_str(line),
-                Element::H1(title)
-                | Element::H2(title, _)
-                | Element::H3(title, _)
-                | Element::H4(title, _)
-                | Element::H5(title, _)
-                | Element::H6(title, _)
+                Element::H1 { title }
+                | Element::H2 { title, .. }
+                | Element::H3 { title, .. }
+                | Element::H4 { title, .. }
+                | Element::H5 { title, .. }
+                | Element::H6 { title, .. }
                 | Element::DocReference(_, title)
                 | Element::CrossReference(_, title)
                 | Element::SelfReference(_, title)
                 | Element::ExtReference(_, title)
-                | Element::Anchor(_, Some(title)) => result.push_str(title),
-                Element::Anchor(_, None) => (),
+                | Element::Anchor {
+                    text: Some(title), ..
+                } => result.push_str(title),
+                Element::Anchor { .. } => (),
             }
         }
 

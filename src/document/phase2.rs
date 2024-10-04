@@ -41,11 +41,11 @@ impl Section {
 
     fn add_line(&mut self, line: Line) -> Result<Option<Self>, String> {
         match line.as_slice() {
-            [Phase1Element::H2(title, id)
-            | Phase1Element::H3(title, id)
-            | Phase1Element::H4(title, id)
-            | Phase1Element::H5(title, id)
-            | Phase1Element::H6(title, id), Phase1Element::Text { text, ending: true }] => {
+            [Phase1Element::H2 { title, id }
+            | Phase1Element::H3 { title, id }
+            | Phase1Element::H4 { title, id }
+            | Phase1Element::H5 { title, id }
+            | Phase1Element::H6 { title, id }, Phase1Element::Text { text, ending: true }] => {
                 if !text.is_empty() {
                     return Err("<h2>..<h6> is followed by text in the same line".into());
                 }
@@ -267,16 +267,16 @@ impl Element {
                     }
                     elements.push(ParagraphElement::Text(line))
                 }
-                Phase1Element::H1(_)
-                | Phase1Element::H2(_, _)
-                | Phase1Element::H3(_, _)
-                | Phase1Element::H4(_, _)
-                | Phase1Element::H5(_, _)
-                | Phase1Element::H6(_, _) => {
+                Phase1Element::H1 { .. }
+                | Phase1Element::H2 { .. }
+                | Phase1Element::H3 { .. }
+                | Phase1Element::H4 { .. }
+                | Phase1Element::H5 { .. }
+                | Phase1Element::H6 { .. } => {
                     panic!("headings shouldn't be found inside a paragraph")
                 }
-                Phase1Element::Anchor(id, title) => {
-                    elements.push(ParagraphElement::Anchor(id.clone(), title.clone()))
+                Phase1Element::Anchor { id, text } => {
+                    elements.push(ParagraphElement::Anchor(id.clone(), text.clone()))
                 }
                 Phase1Element::DocReference(loc, title) => {
                     elements.push(ParagraphElement::DocReference(*loc, title.clone()))
@@ -595,8 +595,7 @@ impl Element {
                         if let Some(ParagraphElement::Text(text)) = elements.last()
                             && text.ends_with("\n\n")
                         {
-                            let is_code =
-                                Self::is_likely_preformatted(&full_line.make_string());
+                            let is_code = Self::is_likely_preformatted(&full_line.make_string());
 
                             if is_code {
                                 Self::paragraph_from_line(elements, full_line.as_slice(), true);
@@ -944,7 +943,9 @@ impl Phase2Document {
             sections: Vec::new(),
         };
 
-        if let Some(Phase1Element::H1(h1)) = document.elements().iter().find(|el| el.is_heading()) {
+        if let Some(Phase1Element::H1 { title: h1 }) =
+            document.elements().iter().find(|el| el.is_heading())
+        {
             this.title = h1.clone();
         }
 
@@ -1080,8 +1081,12 @@ impl Phase2Document {
         }
 
         for section in &self.sections {
-            if section.title.to_ascii_lowercase().contains("table of contents") {
-                continue
+            if section
+                .title
+                .to_ascii_lowercase()
+                .contains("table of contents")
+            {
+                continue;
             }
             result.push_str(&format!(
                 "<h{0} id={2}>{1}</h{0}>\n",
@@ -1113,7 +1118,7 @@ impl Phase2Document {
         // Remove excessive blank lines before and after a page boundary.
         let mut i = 0;
         while i < elements.len() {
-            if let Phase1Element::Anchor(id, _) = &elements[i]
+            if let Phase1Element::Anchor { id, .. } = &elements[i]
                 && id.starts_with("page")
             {
                 while let Some(Phase1Element::Line(line)) = elements.get(i - 1)
@@ -1151,19 +1156,19 @@ impl Phase2Document {
         elements.retain(|el| {
             !matches!(
                 el,
-                Phase1Element::Anchor(id, text) if id.starts_with("page") && text.is_none()
+                Phase1Element::Anchor { id, text } if id.starts_with("page") && text.is_none()
             )
         });
 
         // Try to merge multi-line headings that were missed during phase 1.
         let mut i = 0;
         while i < elements.len() {
-            let merge_with = if let Phase1Element::H2(this, id)
-                | Phase1Element::H3(this, id)
-                | Phase1Element::H4(this, id)
-                | Phase1Element::H5(this, id)
-                | Phase1Element::H6(this, id)
-             = &elements[i] {
+            let merge_with = if let Phase1Element::H2 { title: this, id }
+            | Phase1Element::H3 { title: this, id }
+            | Phase1Element::H4 { title: this, id }
+            | Phase1Element::H5 { title: this, id }
+            | Phase1Element::H6 { title: this, id } = &elements[i]
+            {
                 let reasonable_start = if let Some(appendix) = id.strip_prefix("appendix-") {
                     "Appendix ".len() + appendix.len()
                 } else if let Some(section) = id.strip_prefix("section-") {
@@ -1172,7 +1177,8 @@ impl Phase2Document {
                     0
                 };
 
-                let next_element = if let Some(Phase1Element::Text { text, ending: true }) = elements.get(i + 1)
+                let next_element = if let Some(Phase1Element::Text { text, ending: true }) =
+                    elements.get(i + 1)
                     && text.is_empty()
                 {
                     i + 2
@@ -1183,16 +1189,15 @@ impl Phase2Document {
                 if let Some(title_start) = this.find(". ")
                     && (title_start as i32 - reasonable_start as i32).abs() <= 1
                 {
-                    let required_spaces = title_start + 1 + this[title_start + 1..]
-                        .chars()
-                        .take_while(|c| *c == ' ')
-                        .count();
-
-                    if let Some(Phase1Element::Line(next)) = elements.get(next_element) {
-                        let spaces = next
+                    let required_spaces = title_start
+                        + 1
+                        + this[title_start + 1..]
                             .chars()
                             .take_while(|c| *c == ' ')
                             .count();
+
+                    if let Some(Phase1Element::Line(next)) = elements.get(next_element) {
+                        let spaces = next.chars().take_while(|c| *c == ' ').count();
 
                         (required_spaces == spaces).then_some(next_element)
                     } else {
@@ -1208,12 +1213,12 @@ impl Phase2Document {
             if let Some(merge_with) = merge_with {
                 let merge = elements.remove(merge_with);
 
-                if let Phase1Element::H2(this, _)
-                    | Phase1Element::H3(this, _)
-                    | Phase1Element::H4(this, _)
-                    | Phase1Element::H5(this, _)
-                    | Phase1Element::H6(this, _)
-                = &mut elements[i] {
+                if let Phase1Element::H2 { title: this, .. }
+                | Phase1Element::H3 { title: this, .. }
+                | Phase1Element::H4 { title: this, .. }
+                | Phase1Element::H5 { title: this, .. }
+                | Phase1Element::H6 { title: this, .. } = &mut elements[i]
+                {
                     let mut this_owned = String::from(std::mem::take(this));
                     this_owned.push(' ');
 

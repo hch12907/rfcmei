@@ -323,7 +323,7 @@ impl<'a, 'b> Iterator for NodeAttrIter<'a, 'b> {
                             self.current_index = i + 1;
                             return Some(node);
                         }
-                        _ => continue
+                        _ => continue,
                     }
                 }
 
