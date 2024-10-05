@@ -126,6 +126,7 @@ pub(super) enum Element {
     /// Any empty lines will create a new paragraph.
     Paragraph {
         depth: u32,
+        hanging: bool,
         elements: Vec<ParagraphElement>,
     },
     /// List with a starting number. Each list item may hold multiple paragraphs,
@@ -202,6 +203,7 @@ impl Element {
                             true,
                             Element::Paragraph {
                                 depth: depth - (start_depth + 1),
+                                hanging: false,
                                 elements,
                             },
                         )],
@@ -220,6 +222,7 @@ impl Element {
                             Some(starting),
                             Element::Paragraph {
                                 depth: content.chars().take_while(|c| *c == ' ').count() as u32,
+                                hanging: false,
                                 elements,
                             },
                         )],
@@ -235,6 +238,7 @@ impl Element {
 
                     Self::Paragraph {
                         depth: start_depth,
+                        hanging: false,
                         elements,
                     }
                 }
@@ -414,7 +418,7 @@ impl Element {
                 let line_depth = (line.len() - trimmed_line.len()) as u32;
 
                 match self {
-                    Element::Paragraph { elements, .. } if elements.is_empty() => {
+                    Element::Paragraph { elements, depth, .. } if elements.is_empty() => {
                         let parsed_line = Self::from_phase1_line(full_line, ignore);
 
                         match parsed_line {
@@ -422,6 +426,7 @@ impl Element {
                                 elements: new_elements,
                                 ..
                             } => {
+                                *depth = line_depth;
                                 *elements = new_elements;
                                 Ok(None)
                             }
@@ -430,14 +435,37 @@ impl Element {
                         }
                     }
 
-                    Element::Paragraph { elements, .. } => {
-                        if let Some(text @ ParagraphElement::Text(_)) = elements.last_mut() {
-                            text.add_line(line)?;
-                            Self::paragraph_from_line(elements, xs, false);
-                            Ok(None)
+                    Element::Paragraph {
+                        elements,
+                        hanging,
+                        depth,
+                        ..
+                    } => {
+                        let apparent_end = elements
+                            .last()
+                            .map(|el| {
+                                matches!(el, ParagraphElement::Text(text) if text.ends_with(':'))
+                            })
+                            .unwrap_or(false);
+
+                        // If a paragraph ends in ":" we somewhat treat it as if it
+                        // has already ended. But we don't make an attempt to mark it
+                        // as preformatted.
+                        if apparent_end
+                            && (UnorderedListStyle::extract_from_line(line).is_some()
+                                || OrderedListStyle::extract_from_line(line).is_some())
+                        {
+                            Ok(Some(Self::from_phase1_line(full_line, ignore)))
                         } else {
-                            Self::paragraph_from_line(elements, full_line.as_slice(), false);
-                            Ok(None)
+                            if let Some(text @ ParagraphElement::Text(_)) = elements.last_mut() {
+                                *hanging = *depth + 3 == line_depth;
+                                text.add_line(line)?;
+                                Self::paragraph_from_line(elements, xs, false);
+                                Ok(None)
+                            } else {
+                                Self::paragraph_from_line(elements, full_line.as_slice(), false);
+                                Ok(None)
+                            }
                         }
                     }
 
@@ -469,6 +497,7 @@ impl Element {
                                     Some(num),
                                     Element::Paragraph {
                                         depth: content_depth,
+                                        hanging: false,
                                         elements,
                                     },
                                 ));
@@ -544,6 +573,7 @@ impl Element {
                                     true,
                                     Element::Paragraph {
                                         depth: item_depth - content_start,
+                                        hanging: false,
                                         elements,
                                     },
                                 ));
@@ -627,8 +657,10 @@ impl Element {
             Element::Paragraph {
                 depth,
                 ref elements,
+                ..
             } if !elements.is_empty() => Some(Element::Paragraph {
                 depth: *depth,
+                hanging: false,
                 elements: Vec::new(),
             }),
 
@@ -899,6 +931,69 @@ pub enum ParagraphElement {
 }
 
 impl ParagraphElement {
+    pub fn print_paragraph_element(&self, depth: u32, output: &mut String) {
+        match self {
+            ParagraphElement::Text(text) => {
+                (0..depth).for_each(|_| output.push(' '));
+                let text = text
+                    .replace('&', "&amp;")
+                    .replace('<', "&lt;")
+                    .replace('>', "&gt;");
+
+                output.push_str(&text);
+            }
+            ParagraphElement::DocReference(rfc, inner) => {
+                output.push_str(&format!(r#"<a href="./{rfc}">{inner}</a>"#))
+            }
+            ParagraphElement::CrossReference((rfc, section), inner) => {
+                output.push_str(&format!(r#"<a href="./{rfc}#{section}">{inner}</a>"#))
+            }
+            ParagraphElement::SelfReference(section, inner) => {
+                output.push_str(&format!(r##"<a href="#{section}">{inner}</a>"##))
+            }
+            ParagraphElement::ExtReference(href, inner) => {
+                output.push_str(&format!(r#"<a href="{href}">{inner}</a>"#))
+            }
+            ParagraphElement::Anchor(id, inner) => match inner {
+                Some(text) => output.push_str(&format!(r#"<span id="{id}">{text}</span>"#)),
+                None => output.push_str(&format!(r#"<span id="{id}"></span>"#)),
+            },
+        }
+    }
+
+    pub fn carve_out<F, T, R>(&mut self, at: R, f: F) -> (T, ParagraphElement)
+    where
+        F: Fn(String) -> T,
+        R: std::ops::RangeBounds<usize>,
+    {
+        if let ParagraphElement::Text(text) = self {
+            let start = match at.start_bound() {
+                std::ops::Bound::Included(i) => *i,
+                std::ops::Bound::Excluded(i) => unreachable!(),
+                std::ops::Bound::Unbounded => 0,
+            };
+            let end = match at.end_bound() {
+                std::ops::Bound::Included(i) => *i + 1,
+                std::ops::Bound::Excluded(i) => *i,
+                std::ops::Bound::Unbounded => todo!(),
+            };
+
+            // a[0..2] == [a[0], a[1]]
+            // a.split_off(1) == [a[0]], [a[1], a[2]]
+            // carve_out(3..=5) ->
+            // 1.  [0, 1, 2]
+            // 2.  [3, 4, 5]
+            // 3.  [6, 7, ...]
+
+            let mut middle = text.split_off(start);
+            let end = middle.split_off(end - start);
+
+            (f(middle), ParagraphElement::Text(end))
+        } else {
+            panic!("carve_out() can only be used on Text elements")
+        }
+    }
+
     fn add_line(&mut self, line: &str) -> Result<(), String> {
         match self {
             ParagraphElement::Text(ref mut text) => {
@@ -968,42 +1063,14 @@ impl Phase2Document {
     pub fn print(&self) -> String {
         let mut result = String::with_capacity(65536);
 
-        fn print_paragraph_element(element: &ParagraphElement, output: &mut String) {
-            match element {
-                ParagraphElement::Text(text) => {
-                    output.push_str(text);
-                }
-                ParagraphElement::DocReference(rfc, inner) => {
-                    output.push_str(&format!(r#"<a href="./{rfc}">{inner}</a>"#))
-                }
-                ParagraphElement::CrossReference((rfc, section), inner) => {
-                    output.push_str(&format!(r#"<a href="./{rfc}#{section}">{inner}</a>"#))
-                }
-                ParagraphElement::SelfReference(section, inner) => {
-                    output.push_str(&format!(r##"<a href="#{section}">{inner}</a>"##))
-                }
-                ParagraphElement::ExtReference(href, inner) => {
-                    output.push_str(&format!(r#"<a href="{href}">{inner}</a>"#))
-                }
-                ParagraphElement::Anchor(id, inner) => match inner {
-                    Some(text) => output.push_str(&format!(r#"<span id="{id}">{text}</span>"#)),
-                    None => output.push_str(&format!(r#"<span id="{id}"></span>"#)),
-                },
-            }
-        }
-
         fn print_element(element: &Element, outer_depth: u32, output: &mut String) {
             match element {
-                Element::Paragraph { depth, elements } => {
-                    output.push_str(&" ".repeat((outer_depth + *depth) as usize));
+                Element::Paragraph { elements, .. } => {
                     output.push_str("<p>");
-                    print_paragraph_element(&elements[0], output);
+                    elements[0].print_paragraph_element(0, output);
                     for para_el in &elements[1..] {
-                        output.push('\n');
-                        output.push_str(&" ".repeat((outer_depth + *depth) as usize));
-                        print_paragraph_element(para_el, output);
+                        para_el.print_paragraph_element(0, output);
                     }
-                    output.push_str(&" ".repeat((outer_depth + *depth) as usize));
                     output.push_str("</p>\n");
                 }
 
@@ -1013,9 +1080,8 @@ impl Phase2Document {
                     style,
                     ..
                 } => {
-                    output.push_str(&" ".repeat((outer_depth + *depth) as usize));
                     output.push_str(&format!(
-                        "<ol type=\"{}\" start=\"{}\">\n",
+                        "<ol type=\"{}\" start=\"{}\">",
                         match style {
                             OrderedListStyle::DottedLetterLower
                             | OrderedListStyle::BracketedLetterLower => "a",
@@ -1028,54 +1094,43 @@ impl Phase2Document {
                         },
                         items[0].0.unwrap()
                     ));
-                    output.push_str(&" ".repeat((outer_depth + *depth) as usize));
-                    output.push_str("<li>\n");
+                    output.push_str("<li>");
                     print_element(&items[0].1, outer_depth + *depth, output);
                     for (marker, item) in &items[1..] {
                         if marker.is_some() {
-                            output.push_str(&" ".repeat((outer_depth + *depth) as usize));
-                            output.push_str("</li>\n");
-                            output.push_str("<li>\n");
+                            output.push_str("</li>");
+                            output.push_str("<li>");
                         }
                         print_element(item, outer_depth + *depth, output);
-                        output.push('\n');
                     }
-                    output.push_str(&" ".repeat((outer_depth + *depth) as usize));
-                    output.push_str("</li>\n");
-                    output.push_str(&" ".repeat((outer_depth + *depth) as usize));
-                    output.push_str("</ol>\n");
+                    output.push_str("</li>");
+                    output.push_str("</ol>");
                 }
 
                 Element::UnorderedList { depth, items, .. } => {
-                    output.push_str(&" ".repeat((outer_depth + *depth) as usize));
-                    output.push_str("<ul>\n");
-                    output.push_str(&" ".repeat((outer_depth + *depth) as usize));
-                    output.push_str("<li>\n");
+                    output.push_str("<ul>");
+                    output.push_str("<li>");
                     print_element(&items[0].1, outer_depth + *depth, output);
                     for (marker, item) in &items[1..] {
                         if *marker {
-                            output.push_str(&" ".repeat((outer_depth + *depth) as usize));
-                            output.push_str("</li>\n");
-                            output.push_str("<li>\n");
+                            output.push_str("</li>");
+                            output.push_str("<li>");
                         }
                         print_element(item, outer_depth + *depth, output);
-                        output.push('\n');
                     }
-                    output.push_str(&" ".repeat((outer_depth + *depth) as usize));
-                    output.push_str("</li>\n");
-                    output.push_str(&" ".repeat((outer_depth + *depth) as usize));
-                    output.push_str("</ul>\n");
+                    output.push_str("</li>");
+                    output.push_str("</ul>");
                 }
                 Element::Preformatted { depth, elements } => {
-                    output.push_str(&" ".repeat((outer_depth + *depth) as usize));
                     output.push_str("<pre>");
-                    output.push_str(&" ".repeat(*depth as usize));
-                    print_paragraph_element(&elements[0], output);
-                    for para_el in &elements[1..] {
-                        output.push_str(&" ".repeat((outer_depth + *depth) as usize));
-                        print_paragraph_element(para_el, output);
+                    let mut is_partial = false;
+                    for para_el in elements.iter() {
+                        let depth = if is_partial { 0 } else { *depth };
+                        para_el.print_paragraph_element(depth, output);
+                        is_partial = !matches!(para_el, ParagraphElement::Text(text)
+                            if text.ends_with('\n'));
                     }
-                    output.push_str("</pre>\n");
+                    output.push_str("</pre>");
                 }
             }
         }

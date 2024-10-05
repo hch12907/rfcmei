@@ -9,6 +9,7 @@ use std::path::PathBuf;
 
 use argh::FromArgs;
 use document::phase2::Phase2Document;
+use document::phase3::Phase3Document;
 use document::Document;
 use html5gum::Tokenizer;
 use tree::Tree;
@@ -37,7 +38,10 @@ fn main() -> Result<(), String> {
 
     let phase2 = Phase2Document::from_phase1(document)?;
     // println!("{:#?}", phase2);
-    println!("{}", phase2.print());
+    // println!("{}", phase2.print());
+
+    let phase3 = Phase3Document::from_phase2(phase2)?;
+    println!("{}", phase3.print());
 
     Ok(())
 }
