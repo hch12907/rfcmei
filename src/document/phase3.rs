@@ -1,3 +1,7 @@
+//! In this phase, parsing of text content begin. The textual contents are determined
+//! to whether be paragraphs, lists (ordered or unordered), or preformatted sections.
+//! Phase 3 will produce a tree that Phase 4 consumes.
+
 use std::sync::LazyLock;
 
 use regex::{Regex, RegexSet};

@@ -1,4 +1,4 @@
-//! In Phase 3, the blocks of text are analysed even more, and finer classification
+//! In Phase 4, the blocks of text are analysed even more, and finer classification
 //! may be given to them, for example they could be definition lists or tables.
 //! During the analysis, some blocks of text that were misanalysed previously could be
 //! corrected.
