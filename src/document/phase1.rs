@@ -1,11 +1,7 @@
 //! In the first phase, HTML elements of the original RFC document are largely
 //! degenerated. Only the most important tags (<meta>, <pre>, <a>, <span>) are
 //! retained and in some cases the tags are merged. Phase 1 will be consumed by
-//! Phase 2 on a line-by-line basis. The contents are not analysed.
-
-use std::sync::LazyLock;
-
-use regex::Regex;
+//! Phase 2 on a line-by-line basis. The contents of the HTML are not analysed.
 
 use crate::tree::{Node, Tree};
 
@@ -43,21 +39,11 @@ pub(super) enum Element {
         text: Option<Box<str>>,
     },
 
-    // Below are references. The first field is always the location of the
-    // reference, while the second field is always the innerHTML of the original
-    // <a> tag they originated from.
-    /// Reference to another RFC document.
-    /// e.g. "[RFC1234]"; saved as (1234, "RFC1234")
-    DocReference(u32, Box<str>),
-    /// Reference to a section in another RFC document.
-    /// e.g. "Section 3 of RFC1234", saved as ((1234, "section-3"), "Section 3 of RFC1234")
-    CrossReference((u32, Box<str>), Box<str>),
-    /// Reference to a section in this RFC document.
-    /// e.g. "Section 3", saved as ("section-3", "Section 3")
-    SelfReference(Box<str>, Box<str>),
-    /// Reference to another site.
-    /// e.g. "[IANA]", saved as ("example.com", "IANA")
-    ExtReference(Box<str>, Box<str>),
+    // A reference to other document (either another RFC or an entirely different 
+    // site). The first field is always the location of the reference, while the
+    // second field is always the innerHTML of the original <a> tag they originated
+    // from.
+    Reference(Box<str>, Box<str>),
 }
 
 impl Element {
@@ -76,18 +62,15 @@ impl Element {
     pub(super) fn is_reference(&self) -> bool {
         matches!(
             self,
-            Element::DocReference(_, _)
-                | Element::CrossReference(_, _)
-                | Element::SelfReference(_, _)
-                | Element::ExtReference(_, _)
+            Element::Reference(_, _)
         )
     }
 }
 
 #[derive(Debug, Clone)]
 pub struct Document {
-    meta_info: Vec<MetaElement>,
-    elements: Vec<Element>,
+    pub(super) meta_info: Vec<MetaElement>,
+    pub(super) elements: Vec<Element>,
 }
 
 impl Document {
@@ -190,25 +173,6 @@ impl Document {
         result
     }
 
-    pub(super) fn meta_info(&self) -> &[MetaElement] {
-        &self.meta_info
-    }
-
-    pub(super) fn elements(&self) -> &[Element] {
-        &self.elements
-    }
-
-    pub(super) fn from_raw_parts(meta_info: Vec<MetaElement>, elements: Vec<Element>) -> Self {
-        Self {
-            meta_info,
-            elements,
-        }
-    }
-
-    pub(super) fn into_raw_parts(self) -> (Vec<MetaElement>, Vec<Element>) {
-        (self.meta_info, self.elements)
-    }
-
     pub(super) fn lines(&self) -> DocumentLines<'_> {
         DocumentLines {
             document: self,
@@ -277,15 +241,6 @@ impl Document {
     }
 
     fn parse_a(&mut self, node: &Node) -> Result<Element, String> {
-        static DOC_REFERENCE_REGEX: LazyLock<Regex> =
-            LazyLock::new(|| Regex::new(r"^./rfc(\d+)$").unwrap());
-
-        static CROSS_REFERENCE_REGEX: LazyLock<Regex> =
-            LazyLock::new(|| Regex::new(r"^./rfc(\d+)#(.+)$").unwrap());
-
-        static SELF_REFERENCE_REGEX: LazyLock<Regex> =
-            LazyLock::new(|| Regex::new(r"^#(.+)$").unwrap());
-
         match node {
             Node::Tag { name, attr, inner } if name == "a" => {
                 let Some(href) = attr.get("href") else {
@@ -312,20 +267,7 @@ impl Document {
                     Err("encountered <a> tag without innerHTML".to_string())?
                 };
                 let inner = inner.clone().into_boxed_str();
-
-                if let Some(captured) = CROSS_REFERENCE_REGEX.captures(href) {
-                    let rfc = captured[1].parse::<u32>().unwrap();
-                    let section = captured[2].to_owned().into_boxed_str();
-                    Ok(Element::CrossReference((rfc, section), inner))
-                } else if let Some(captured) = DOC_REFERENCE_REGEX.captures(href) {
-                    let rfc = captured[1].parse::<u32>().unwrap();
-                    Ok(Element::DocReference(rfc, inner))
-                } else if let Some(captured) = SELF_REFERENCE_REGEX.captures(href) {
-                    let section = captured[1].to_owned().into_boxed_str();
-                    Ok(Element::SelfReference(section, inner))
-                } else {
-                    Ok(Element::ExtReference(href.clone().into_boxed_str(), inner))
-                }
+                Ok(Element::Reference(href.clone().into_boxed_str(), inner))
             }
 
             _ => Err("parse_a() encountered unexpected html element".into()),
@@ -370,10 +312,13 @@ impl Document {
                 // <span><a>content-first</a>content-rest</span>
                 let (id, inner) = if let [first @ Node::Tag { .. }, rest @ ..] = inner.as_slice() {
                     let id = if first.name() == Some("a") {
-                        let Element::SelfReference(section, _) = self.parse_a(first)? else {
+                        let Element::Reference(section, _) = self.parse_a(first)? else {
                             eprintln!("{:?}", node);
                             return Err("unexpected hyperlink in <span><a>".to_string());
                         };
+                        if !section.starts_with('#') {
+                            return Err("unexpected hyperlink in <span><a>".to_string());
+                        }
                         Some(section)
                     } else {
                         None
@@ -536,11 +481,11 @@ impl<'a> Iterator for DocumentLines<'a> {
         let start = self.start_index;
         let mut last = start;
 
-        if start >= self.document.elements().len() {
+        if start >= self.document.elements.len() {
             return None;
         }
 
-        for (i, element) in self.document.elements().iter().enumerate().skip(start) {
+        for (i, element) in self.document.elements.iter().enumerate().skip(start) {
             match element {
                 Element::Line(_) if start == last => {
                     self.start_index = i + 1;
@@ -591,10 +536,7 @@ impl<'a> Line<'a> {
                 | Element::H4 { title, .. }
                 | Element::H5 { title, .. }
                 | Element::H6 { title, .. }
-                | Element::DocReference(_, title)
-                | Element::CrossReference(_, title)
-                | Element::SelfReference(_, title)
-                | Element::ExtReference(_, title)
+                | Element::Reference(_, title)
                 | Element::Anchor {
                     text: Some(title), ..
                 } => result.push_str(title),
