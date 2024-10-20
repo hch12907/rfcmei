@@ -7,7 +7,7 @@ then decorated with CSS.
 Here is an example of [RFC 6887](https://www.rfc-editor.org/rfc/rfc6887) after
 being prettified by the tool (the secret CSS sauce is **not** included):
 
-![RFC 6887 prettified](./screenshot.png)
+<img src="./screenshot.png" alt="RFC 6887 prettified" height=350px>
 
 But please understand that **the tool is still in development and its output is not perfect**.
 Thanks.
