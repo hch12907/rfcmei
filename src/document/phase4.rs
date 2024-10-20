@@ -527,7 +527,9 @@ impl Phase4Document {
             let Some(starting_element) = starting_element else {
                 continue;
             };
-            let ending_element = ending_element.unwrap();
+            let Some(ending_element) = ending_element else {
+                continue;
+            };
 
             let mut term = String::new();
             let mut def = Vec::new();

@@ -275,6 +275,75 @@ impl Section {
             lines.extend_from_slice(&lines_next);
         }
 
+        // If there is a list in between two preformatted blocks, there is a
+        // possibility it is a misanalysis. Undo the list.
+        let mut i = 1;
+        while i < self.elements.len().saturating_sub(1) {
+            let Element::UnorderedList {
+                depth: _,
+                style: _,
+                items: _,
+            } = &self.elements[i] else {
+                i += 1;
+                continue
+            };
+
+            let Element::Paragraph {
+                depth,
+                hanging: _,
+                preformatted: true,
+                lines: _,
+            } = &self.elements[i - 1] else {
+                i += 1;
+                continue
+            };
+            let depth = *depth;
+
+            let Element::Paragraph {
+                depth: _,
+                hanging: _,
+                preformatted: true,
+                lines: _,
+            } = &self.elements[i + 1] else {
+                i += 1;
+                continue
+            };
+
+            let Element::UnorderedList { depth: list_depth, style, items, .. } = self.elements.remove(i) else {
+                unreachable!();
+            };
+            let Element::Paragraph { lines, .. } = &mut self.elements[i - 1] else {
+                unreachable!()
+            };
+
+            for (marker, item) in items {
+                let mut new_line = Line::new();
+
+                for _ in 0..list_depth - depth {
+                    new_line.text.push(' ');
+                }
+
+                if marker {
+                    new_line.text.push(style.to_char());
+                }
+
+                match item {
+                    Element::Paragraph { depth, lines, .. } => {
+                        for _ in 0..depth {
+                            new_line.text.push(' ');
+                        }
+                        for line in lines {
+                            new_line.text.push_str(&line.text);
+                        }
+                    },
+                    Element::OrderedList { depth: _, style: _, items: _ } => todo!(),
+                    Element::UnorderedList { depth: _, style: _, items: _ } => todo!(),
+                }
+
+                lines.push(new_line);
+            }
+        }
+
         // Remove connectors or replace them with a space in non-preformatted
         // paragraphs.
         for element in &mut self.elements {
@@ -613,6 +682,15 @@ impl UnorderedListStyle {
             Some((style, line_depth))
         } else {
             None
+        }
+    }
+
+    pub fn to_char(&self) -> char {
+        match self {
+            UnorderedListStyle::Asterisk => '*',
+            UnorderedListStyle::Dash => '-',
+            UnorderedListStyle::Round => 'o',
+            UnorderedListStyle::Plus => '+',
         }
     }
 }
