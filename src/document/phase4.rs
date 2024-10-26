@@ -3,6 +3,8 @@
 //! During the analysis, some blocks of text that were misanalysed previously could be
 //! corrected.
 
+use std::convert::identity;
+
 use super::phase2::{Line, StartInfo};
 use super::phase3::{
     Element as Phase3Element, OrderedListStyle, Phase3Document, Section as Phase3Section,
@@ -134,6 +136,7 @@ impl Phase4Document {
 
         this.combine_paragraphs();
         this.find_double_column_deflist();
+        this.fixup_broken_table();
 
         Ok(this)
     }
@@ -394,217 +397,265 @@ impl Phase4Document {
         let spaces = " ".repeat(SPACE_THRESHOLD);
 
         for section in &mut self.sections {
-            let mut deflist_depth = 0;
-            let mut deflist_defs = Vec::new();
-            let mut second_column_start = 0;
-            let mut starting_element = None;
-            let mut ending_element = None;
+            let mut skip_element = 0;
 
-            'this_element: for (i, element) in section.elements.iter_mut().enumerate() {
-                let Element::Paragraph {
-                    depth,
-                    lines,
-                    preformatted,
-                    ..
-                } = element
-                else {
-                    if starting_element.is_none() {
-                        continue 'this_element;
-                    } else {
-                        break 'this_element;
-                    }
-                };
+            while skip_element < section.elements.len() {
+                let mut deflist_depth = 0;
+                let mut deflist_defs = Vec::new();
+                let mut second_column_start = 0;
+                let mut starting_element = None;
+                let mut ending_element = None;
 
-                let (depth, preformatted) = (*depth, *preformatted);
-
-                if starting_element.is_some() && deflist_depth != depth {
-                    // Some deflist items can be misinterpreted as very deep paragraphs.
-                    // If we see such paragraphs, correct them.
-                    // Example pathological case:
-                    //    Foobar                This is a paragraph in a deflist.
-                    //
-                    //                          And this paragraph here can be misinterpreted
-                    //                          as a very deep paragraph instead of as a
-                    //                          continuation of the first paragraph.
-                    if deflist_depth + second_column_start as u32 == depth {
-                        let mut lines = lines.clone();
-
-                        for line in &mut lines {
-                            line.text = " ".repeat(second_column_start) + &line.text;
-                        }
-
-                        *element = Element::Paragraph {
-                            depth: deflist_depth,
-                            hanging: false,
-                            preformatted,
-                            lines,
-                        };
-                    } else {
-                        break 'this_element;
-                    }
-                }
-
-                let Element::Paragraph { lines, .. } = element else {
-                    unreachable!()
-                };
-
-                for (j, line) in lines.iter().enumerate() {
-                    if line.text.is_empty() {
-                        continue;
-                    }
-
-                    // If a line consists entirely of graphical chars (or whitespace),
-                    // it's not a definition list.
-                    if line.connector == Some('\n')
-                        && line.text.trim().chars().all(|c| {
-                            c == ' ' || (c.is_ascii_graphic() && !c.is_ascii_alphanumeric())
-                        })
-                    {
-                        starting_element = None;
-                        continue 'this_element;
-                    }
-
-                    if line.text.starts_with(' ') {
+                'this_element: for (i, element) in section.elements.iter_mut().enumerate().skip(skip_element) {
+                    let Element::Paragraph {
+                        depth,
+                        lines,
+                        preformatted,
+                        ..
+                    } = element
+                    else {
                         if starting_element.is_none() {
                             continue 'this_element;
-                        } else if line.text.bytes().take_while(|c| *c == b' ').count()
-                            != second_column_start
-                        {
-                            ending_element = Some((i, j));
-                            break 'this_element;
-                        }
-                    }
-
-                    if let Some(found) = line.text.rfind(&spaces)
-                        && line
-                            .text
-                            .as_bytes()
-                            .get(found + SPACE_THRESHOLD)
-                            .unwrap_or(&0)
-                            .is_ascii_alphabetic()
-                        && found < 60
-                    {
-                        if starting_element.is_none() {
-                            starting_element = Some((i, j));
-                            second_column_start = found + SPACE_THRESHOLD;
-                            deflist_depth = depth;
                         } else {
-                            ending_element = Some((i, j));
-                        }
-                    } else if starting_element.is_some() {
-                        let too_short = line.text.len() < second_column_start + 1;
-
-                        let before_not_space = line
-                            .text
-                            .as_bytes()
-                            .get(second_column_start - 1)
-                            .map(|c| *c != b' ')
-                            .unwrap_or(true);
-
-                        let itself_not_space = line
-                            .text
-                            .as_bytes()
-                            .get(second_column_start)
-                            .map(|c| *c == b' ')
-                            .unwrap_or(true);
-
-                        if too_short || before_not_space || itself_not_space {
-                            starting_element = None;
                             break 'this_element;
                         }
+                    };
 
-                        ending_element = Some((i, j));
-                    }
-                }
+                    let (depth, preformatted) = (*depth, *preformatted);
 
-                // If we've arrived here, the entire element is eligible. But
-                // the range is exclusive, so let's add 1 to it
-                if let Some((_, ref mut j)) = ending_element {
-                    *j += 1;
-                }
-            }
+                    if starting_element.is_some() && deflist_depth != depth {
+                        // Some deflist items can be misinterpreted as very deep paragraphs.
+                        // If we see such paragraphs, correct them.
+                        // Example pathological case:
+                        //    Foobar                This is a paragraph in a deflist.
+                        //
+                        //                          And this paragraph here can be misinterpreted
+                        //                          as a very deep paragraph instead of as a
+                        //                          continuation of the first paragraph.
+                        if deflist_depth + second_column_start as u32 == depth {
+                            let mut lines = lines.clone();
 
-            let Some(starting_element) = starting_element else {
-                continue;
-            };
-            let Some(ending_element) = ending_element else {
-                continue;
-            };
+                            for line in &mut lines {
+                                line.text = " ".repeat(second_column_start) + &line.text;
+                            }
 
-            let mut term = String::new();
-            let mut def = Vec::new();
-            for (i, element) in section.elements[starting_element.0..=ending_element.0]
-                .iter()
-                .enumerate()
-            {
-                let Element::Paragraph { lines, .. } = element else {
-                    unreachable!()
-                };
-
-                let lines = if i == 0 {
-                    &lines[starting_element.1..]
-                } else if i == ending_element.0 {
-                    &lines[..ending_element.1]
-                } else {
-                    &lines[..]
-                };
-
-                for line in lines {
-                    if line.text.is_empty() {
-                        continue;
-                    }
-
-                    let new_term = line.text[..second_column_start].trim_end().to_owned();
-
-                    if !new_term.is_empty() {
-                        if !term.is_empty() {
-                            deflist_defs.push((term, std::mem::take(&mut def)));
+                            *element = Element::Paragraph {
+                                depth: deflist_depth,
+                                hanging: false,
+                                preformatted,
+                                lines,
+                            };
+                        } else {
+                            break 'this_element;
                         }
-                        term = new_term;
                     }
 
-                    def.push(line.cut(second_column_start as u32).to_owned());
+                    let Element::Paragraph { lines, .. } = element else {
+                        unreachable!()
+                    };
+
+                    for (j, line) in lines.iter().enumerate() {
+                        if line.text.is_empty() {
+                            continue;
+                        }
+
+                        // If a line consists entirely of graphical chars (or whitespace),
+                        // it's not a definition list.
+                        if line.connector == Some('\n')
+                            && line.text.trim().chars().all(|c| {
+                                c == ' ' || (c.is_ascii_graphic() && !c.is_ascii_alphanumeric())
+                            })
+                        {
+                            starting_element = None;
+                            continue 'this_element;
+                        }
+
+                        if line.text.starts_with(' ') {
+                            if starting_element.is_none() {
+                                continue 'this_element;
+                            } else if line.text.bytes().take_while(|c| *c == b' ').count()
+                                != second_column_start
+                            {
+                                ending_element = Some((i, j));
+                                break 'this_element;
+                            }
+                        }
+
+                        if let Some(found) = line.text.rfind(&spaces)
+                            && line
+                                .text
+                                .as_bytes()
+                                .get(found + SPACE_THRESHOLD)
+                                .unwrap_or(&0)
+                                .is_ascii_alphabetic()
+                            && found < 60
+                        {
+                            if starting_element.is_none() {
+                                starting_element = Some((i, j));
+                                second_column_start = found + SPACE_THRESHOLD;
+                                deflist_depth = depth;
+                            } else {
+                                ending_element = Some((i, j));
+                            }
+                        } else if starting_element.is_some() {
+                            let too_short = line.text.len() < second_column_start + 1;
+
+                            let before_not_space = line
+                                .text
+                                .as_bytes()
+                                .get(second_column_start - 1)
+                                .map(|c| *c != b' ')
+                                .unwrap_or(true);
+
+                            let itself_not_space = line
+                                .text
+                                .as_bytes()
+                                .get(second_column_start)
+                                .map(|c| *c == b' ')
+                                .unwrap_or(true);
+
+                            if too_short || before_not_space || itself_not_space {
+                                starting_element = None;
+                                break 'this_element;
+                            }
+
+                            ending_element = Some((i, j));
+                        }
+                    }
+
+                    // If we've arrived here, the entire element is eligible. But
+                    // the range is exclusive, so let's add 1 to it
+                    if let Some((_, ref mut j)) = ending_element {
+                        *j += 1;
+                    }
                 }
-            }
-            deflist_defs.push((term, def));
 
-            let element = Element::DefinitionList {
-                depth: deflist_depth,
-                definitions: deflist_defs,
-            };
+                let Some(starting_element) = starting_element else {
+                    skip_element = section.elements.len();
+                    continue;
+                };
+                let Some(ending_element) = ending_element else {
+                    skip_element = section.elements.len();
+                    continue;
+                };
 
-            // Remove the original elements
-            if starting_element.1 > 0 {
-                if let Element::Paragraph { lines, .. } = &mut section.elements[starting_element.0]
+                let mut term = String::new();
+                let mut def = Vec::new();
+                for (i, element) in section.elements[starting_element.0..=ending_element.0]
+                    .iter()
+                    .enumerate()
                 {
-                    lines.drain(starting_element.1..);
-                } else {
-                    unreachable!();
-                }
-            }
-            if starting_element.0 != ending_element.0 && ending_element.1 > 0 {
-                if let Element::Paragraph { lines, .. } = &mut section.elements[ending_element.0] {
-                    lines.drain(..ending_element.1);
-                } else {
-                    unreachable!();
-                }
-            }
+                    let Element::Paragraph { lines, .. } = element else {
+                        unreachable!()
+                    };
 
-            if starting_element.0 == ending_element.0 {
+                    let lines = if i == 0 {
+                        &lines[starting_element.1..]
+                    } else if i == ending_element.0 {
+                        &lines[..ending_element.1]
+                    } else {
+                        &lines[..]
+                    };
+
+                    for line in lines {
+                        if line.text.is_empty() {
+                            continue;
+                        }
+
+                        let new_term = line.text[..second_column_start].trim_end().to_owned();
+
+                        if !new_term.is_empty() {
+                            if !term.is_empty() {
+                                deflist_defs.push((term, std::mem::take(&mut def)));
+                            }
+                            term = new_term;
+                        }
+
+                        def.push(line.cut(second_column_start as u32).to_owned());
+                    }
+                }
+                deflist_defs.push((term, def));
+
+                let element = Element::DefinitionList {
+                    depth: deflist_depth,
+                    definitions: deflist_defs,
+                };
+
+                // Remove the original elements
                 if starting_element.1 > 0 {
+                    if let Element::Paragraph { lines, .. } = &mut section.elements[starting_element.0]
+                    {
+                        lines.drain(starting_element.1..);
+                    } else {
+                        unreachable!();
+                    }
+                }
+                if starting_element.0 != ending_element.0 && ending_element.1 > 0 {
+                    if let Element::Paragraph { lines, .. } = &mut section.elements[ending_element.0] {
+                        lines.drain(..ending_element.1);
+                    } else {
+                        unreachable!();
+                    }
+                }
+
+                if starting_element.0 == ending_element.0 {
+                    if starting_element.1 > 0 {
+                        section.elements.insert(starting_element.0 + 1, element);
+                    } else {
+                        section.elements.remove(starting_element.0);
+                        section.elements.insert(starting_element.0, element);
+                    }
+                } else if starting_element.1 > 0 {
+                    section
+                        .elements
+                        .drain(starting_element.0 + 1..ending_element.0);
                     section.elements.insert(starting_element.0 + 1, element);
                 } else {
-                    section.elements.remove(starting_element.0);
+                    section.elements.drain(starting_element.0..ending_element.0);
                     section.elements.insert(starting_element.0, element);
                 }
-            } else if starting_element.1 > 0 {
-                section
-                    .elements
-                    .drain(starting_element.0 + 1..ending_element.0);
-                section.elements.insert(starting_element.0 + 1, element);
-            } else {
-                section.elements.drain(starting_element.0..ending_element.0);
-                section.elements.insert(starting_element.0, element);
+            }
+        }
+    }
+
+    fn fixup_broken_table(&mut self) {
+        for section in &mut self.sections {
+            for element in &mut section.elements {
+                let Element::Paragraph { preformatted, lines, .. } = element else {
+                    continue
+                };
+
+                if !*preformatted {
+                    continue
+                }
+
+                let mut i = 0;
+                while i < lines.len() {
+                    if !lines[i].text.is_empty() {
+                        i += 1;
+                        continue
+                    }
+                    if lines[i-1].text.len() != lines[i+1].text.len() {
+                        i += 1;
+                        continue
+                    }
+
+                    if !lines[i-1].text.contains('|') {
+                        i += 1;
+                        continue
+                    }
+
+                    let matches = lines[i-1].text.chars()
+                        .zip(lines[i+1].text.chars())
+                        .filter(|&(c1, c2)| c1 == '|' || c2 == '|' )
+                        .map(|(c1, c2)| c1 == c2)
+                        .all(identity);
+
+                    if matches {
+                        lines.remove(i);
+                        i += 1;
+                    }
+                }
             }
         }
     }
