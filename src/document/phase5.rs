@@ -103,6 +103,10 @@ r##"
                 font-size: 0.9em;
                 padding-bottom: 5em;
             }}
+            .start-info dt,
+            .start-info dd {{
+                padding: 0.1em;
+            }}
             .hanging {{
                 padding-left: 1.5rem;
                 text-indent: -1.5rem;
