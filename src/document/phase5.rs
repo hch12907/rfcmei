@@ -4,13 +4,100 @@ use std::sync::LazyLock;
 
 use regex::Regex;
 
-use crate::document::phase2::{LineMetadata, LineMetadataKind};
+use crate::document::phase2::{LineMetadata, LineMetadataKind, StartInfo};
 use crate::document::phase4::Element;
 
 use super::phase2::Line;
-use super::phase3::{OrderedListStyle, UnorderedListStyle};
+use super::phase3::OrderedListStyle;
 use super::phase4::Phase4Document;
 
+
+macro_rules! html_template {
+    ($($key:ident = $val:ident),*) => {
+        format!(
+r##"
+<!DOCTYPE html>
+<html>
+    <head>
+        <title>{rfc} - {title} [Prettified]</title>
+        <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <meta charset="UTF-8" />
+        <style>
+            body {{
+                font-family: Helvetica, Roboto, Arial, sans-serif;
+                line-height: 1.6em;
+                background-color: #fbfbf9;
+                max-width: 700px;
+                margin: auto;
+            }}
+            h1 {{
+                text-align: center;
+                padding: 0.5em 0em;
+                margin: 2em;
+                font-size: 1.8em;
+                line-height: 1em;
+            }}
+            h2 {{
+                padding: 0.5em 0em;
+                font-size: 1.6em;
+            }}
+            h3 {{
+                padding: 0.5em 0em;
+                font-size: 1.4em;
+            }}
+            h4 {{
+                padding: 0.5em 0em;
+                font-size: 1.3em;
+            }}
+            h5 {{
+                font-size: 1.2em;
+            }}
+            h6 {{
+                font-size: 1.15em;
+            }}
+            dl dt {{
+                width: 8em;
+                float: left;
+            }}
+            .author {{
+                float: left;
+                margin: 0 0.33em 0 0;
+                text-align: center;
+            }}
+            .author-org {{
+                font-style: italic;
+            }}
+            .ident-1 {{
+                padding-left: 1.5rem;
+            }}
+            .ident-2 {{
+                padding-left: 3rem;
+            }}
+            .ident-3 {{
+                padding-left: 4.5rem;
+            }}
+            .ident-4 {{
+                padding-left: 6rem;
+            }}
+            .start-info {{
+                font-size: 0.9em;
+                padding-bottom: 3em;
+            }}
+            .hanging {{
+                padding-left: 1.5rem;
+                text-indent: -1.5rem;
+            }}
+        </style>
+    </head>
+    <body>
+        <article>
+{body}
+        </article>
+    </body>
+</html>
+"##, $($key=$val,)*)
+    };
+}
 
 #[derive(Debug, Clone)]
 pub struct Phase5Document {
@@ -48,6 +135,16 @@ impl Phase5Document {
                                 .min(max_column as u32 - 1);
                             end == i as u32
                         });
+
+                    let approaching_end = end_meta.is_some() && max_column - 1 == i;
+                    if approaching_end {
+                        match ch {
+                            '&' => output.push_str("&amp;"),
+                            '<' => output.push_str("&lt;"),
+                            '>' => output.push_str("&gt;"),
+                            _ => output.push(ch),
+                        }
+                    }
 
                     match end_meta {
                         Some(LineMetadata {
@@ -105,11 +202,13 @@ impl Phase5Document {
                         None => (),
                     };
 
-                    match ch {
-                        '&' => output.push_str("&amp;"),
-                        '<' => output.push_str("&lt;"),
-                        '>' => output.push_str("&gt;"),
-                        _ => output.push(ch),
+                    if !approaching_end {
+                        match ch {
+                            '&' => output.push_str("&amp;"),
+                            '<' => output.push_str("&lt;"),
+                            '>' => output.push_str("&gt;"),
+                            _ => output.push(ch),
+                        }
                     }
                 }
 
@@ -122,13 +221,50 @@ impl Phase5Document {
                 Element::Paragraph {
                     lines,
                     depth,
-                    hanging,
                     preformatted,
                 } => {
+                    let is_hanging = 'block: {
+                        let first_depth = lines.first()
+                            .map(|line| line.text.chars().take_while(|c| *c == ' ').count())
+                            .unwrap_or(0);
+                        let next_depth = lines.iter()
+                            .nth(1)
+                            .map(|line| line.text.chars().take_while(|c| *c == ' ').count())
+                            .unwrap_or(0);
+
+                        if first_depth >= next_depth {
+                            break 'block false;
+                        }
+
+                        let mut same_depth = true;
+                        for line in &lines[2..] {
+                            let depth = line.text.chars().take_while(|c| *c == ' ').count();
+                            same_depth &= depth == next_depth;
+                        }
+
+                        same_depth
+                    };
+
+                    let depth_class = depth.saturating_sub(3) / 3;
+                    let class = if depth_class > 0 {
+                        &format!("indent-{}", depth_class)
+                    } else {
+                        ""
+                    };
+                    let class = if is_hanging {
+                        &format!("hanging {}", class)
+                    } else {
+                        class
+                    };
+
                     if *preformatted {
                         output.push_str("<pre>");
                     } else {
-                        output.push_str("<p>");
+                        if class.is_empty() {
+                            output.push_str("<p>");
+                        } else {
+                            output.push_str(&format!("<p class=\"{}\">", class.trim()));
+                        }
                     }
 
                     let space = if *preformatted {
@@ -137,8 +273,19 @@ impl Phase5Document {
                         ""
                     };
 
-                    for line in lines {
+                    for (i, line) in lines.iter().enumerate() {
                         print_line(&space, line, output);
+
+                        if !*preformatted
+                            && let Some(next_line) = lines.get(i + 1)
+                        {
+                            let depth_now = line.text.chars().take_while(|c| *c == ' ').count();
+                            let depth_next = next_line.text.chars().take_while(|c| *c == ' ').count();
+
+                            if depth_now != depth_next {
+                                output.push_str("<br>");
+                            }
+                        }
                     }
 
                     if *preformatted {
@@ -148,9 +295,17 @@ impl Phase5Document {
                     }
                 }
 
-                Element::OrderedList { items, style, .. } => {
+                Element::OrderedList { depth, items, style, .. } => {
+                    let depth_class = depth.saturating_sub(3) / 3;
+                    let class = if depth_class > 0 {
+                        &format!("class=\"indent-{}\"", depth_class)
+                    } else {
+                        ""
+                    };
+
                     output.push_str(&format!(
-                        "<ol type=\"{}\" start=\"{}\">",
+                        "<ol {} type=\"{}\" start=\"{}\">",
+                        class,
                         match style {
                             OrderedListStyle::DottedLetterLower
                             | OrderedListStyle::BracketedLetterLower => "a",
@@ -176,8 +331,15 @@ impl Phase5Document {
                     output.push_str("</ol>\n");
                 }
 
-                Element::UnorderedList { items, .. } => {
-                    output.push_str("<ul>");
+                Element::UnorderedList { depth, items, .. } => {
+                    let depth_class = depth.saturating_sub(3) / 3;
+                    let class = if depth_class > 0 {
+                        &format!("class=\"indent-{}\"", depth_class)
+                    } else {
+                        ""
+                    };
+
+                    output.push_str(&format!("<ul {}>", class));
                     output.push_str("<li>");
                     print_element(&items[0].1, output);
                     for (marker, item) in &items[1..] {
@@ -190,8 +352,15 @@ impl Phase5Document {
                     output.push_str("</li>");
                     output.push_str("</ul>\n");
                 }
-                Element::DefinitionList { definitions, .. } => {
-                    output.push_str("<dl>");
+                Element::DefinitionList { depth, definitions, .. } => {
+                    let depth_class = depth.saturating_sub(3) / 3;
+                    let class = if depth_class > 0 {
+                        &format!("class=\"indent-{}\"", depth_class)
+                    } else {
+                        ""
+                    };
+
+                    output.push_str(&format!("<dl {}>", class));
                     for (term, definition) in definitions {
                         output.push_str(&format!("<dt>{}</dt>\n", term));
                         output.push_str("<dd>");
@@ -225,6 +394,27 @@ impl Phase5Document {
             }
         }
 
+        let StartInfo { stream, rfc, obsoletes, date, category, others, authors } = &self.document.start_info;
+        result.push_str("<dl class=\"start-info\">");
+        result.push_str(&format!("<dt>Stream:</dt><dd>{}</dd>", stream));
+        result.push_str(&format!("<dt>RFC:</dt><dd>{}</dd>", rfc));
+        if !obsoletes.is_empty() {
+            result.push_str(&format!("<dt>Obsoletes:</dt>"));
+            for (rfc, name) in obsoletes {
+                result.push_str(&format!("<dd><a href=\"./rfc{}\">{}</a></dd>", rfc, name));
+            }
+        }
+        result.push_str(&format!("<dt>Category:</dt><dd>{}</dd>", category));
+        result.push_str(&format!("<dt>Date:</dt><dd>{}</dd>", date));
+        for (term, def) in others {
+            result.push_str(&format!("<dt>{}:</dt><dd>{}</dd>", term, def));
+        }
+        result.push_str(&format!("<dt>Authors:</dt>"));
+        for (name, org) in authors {
+            result.push_str(&format!("<dd class=\"author\"><div class=\"author-name\">{}</div><div class=\"author-org\">{}</div></dd>", name, org));
+        }
+        result.push_str("</dl>");
+
         result.push_str(&format!("<h1>{}</h1>", &self.document.title));
 
         for section in &self.document.sections {
@@ -247,7 +437,9 @@ impl Phase5Document {
             }
         }
 
-        result
+        let rfc = &self.document.start_info.rfc;
+        let title = &self.document.title;
+        html_template!(body=result, title=title, rfc=rfc)
     }
 
     fn mark_keywords(&mut self) {
@@ -310,3 +502,4 @@ impl Phase5Document {
         }
     }
 }
+

@@ -74,6 +74,25 @@ impl Line {
                 .collect()
         }
     }
+
+    /// Append some spaces to the line in the beginning such that it reaches a
+    /// certain depth.
+    pub fn pad(&self, depth: u32) -> Line {
+        let current_depth = self.text.chars().take_while(|c| *c == ' ').count();
+        let to_pad = depth as usize - current_depth;
+
+        Line {
+            text: " ".repeat(to_pad) + &self.text,
+            connector: self.connector,
+            metadata: self.metadata.iter()
+                .cloned()
+                .map(|mut meta| {
+                    meta.column += to_pad as u32;
+                    meta
+                })
+                .collect()
+        }
+    }
 }
 
 #[derive(Debug, Clone)]

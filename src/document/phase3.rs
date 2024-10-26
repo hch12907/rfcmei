@@ -188,17 +188,16 @@ impl Section {
         // Determine whether a paragraph is preformatted. While we are at it, also
         // find out the depth of the paragraph
         for element in &mut self.elements {
-            if let Element::Paragraph { depth, hanging, preformatted, lines } = element {
+            if let Element::Paragraph { depth, preformatted, lines } = element {
                 // If the ratio of code_lines : noncode_lines is >= 1, we consider
                 // the paragraph a preformatted block.
                 let mut code_lines = 0;
                 let mut noncode_lines = 0;
 
-                let first_depth = lines
+                let mut common_depth = lines
                     .first()
                     .map(|line| line.text.chars().take_while(|c| *c == ' ').count())
                     .unwrap_or(0);
-                let mut subsequent_depth = first_depth;
 
                 for line in lines.iter() {
                     if Self::is_likely_preformatted(&line.text) {
@@ -207,7 +206,7 @@ impl Section {
                         noncode_lines += 1
                     }
 
-                    subsequent_depth = subsequent_depth
+                    common_depth = common_depth
                         .min(line.text.chars().take_while(|c| *c == ' ').count());
                 }
 
@@ -217,11 +216,10 @@ impl Section {
 
                 if noncode_lines == 0 || code_lines / noncode_lines > 0 {
                     *preformatted = true;
-                    *depth = subsequent_depth as u32;
+                    *depth = common_depth as u32;
                 } else {
                     *preformatted = false;
-                    *hanging = subsequent_depth >= first_depth + 3;
-                    *depth = first_depth as u32;
+                    *depth = common_depth as u32;
                 }
 
                 for line in lines.iter_mut() {
@@ -245,7 +243,6 @@ impl Section {
 
             let Element::Paragraph {
                 depth,
-                hanging: _,
                 preformatted: true,
                 lines: _,
             } = &self.elements[i - 1] else {
@@ -256,7 +253,6 @@ impl Section {
 
             let Element::Paragraph {
                 depth: _,
-                hanging: _,
                 preformatted: true,
                 lines: _,
             } = &self.elements[i + 1] else {
@@ -304,7 +300,6 @@ impl Section {
         while i < self.elements.len().saturating_sub(1) {
             let Element::Paragraph {
                 depth: depth_this,
-                hanging: hanging_this,
                 preformatted: preformatted_this,
                 lines: _,
             } = &self.elements[i] else {
@@ -314,7 +309,6 @@ impl Section {
 
             let Element::Paragraph {
                 depth: depth_next,
-                hanging: hanging_next,
                 preformatted: preformatted_next,
                 lines: _,
             } = &self.elements[i + 1] else {
@@ -323,8 +317,6 @@ impl Section {
             };
 
             if *depth_this != *depth_next
-                || *hanging_this
-                || *hanging_next
                 || !*preformatted_this
                 || !*preformatted_next
             {
@@ -349,7 +341,6 @@ impl Section {
         for element in &mut self.elements {
             let Element::Paragraph {
                 depth: _,
-                hanging: _,
                 preformatted: false,
                 lines,
             } = element else {
@@ -701,7 +692,6 @@ pub enum Element {
     /// Any empty lines will create a new paragraph.
     Paragraph {
         depth: u32,
-        hanging: bool,
         preformatted: bool,
         lines: Vec<Line>,
     },
@@ -756,7 +746,6 @@ impl Element {
                     true,
                     Self::Paragraph {
                         depth: depth - (start_depth + 1),
-                        hanging: false,
                         preformatted: false,
                         lines: vec![line.cut(depth + ignore as u32)],
                     },
@@ -774,7 +763,6 @@ impl Element {
                     Some(starting),
                     Element::Paragraph {
                         depth: (content.len() - trimmed_content.len()) as u32,
-                        hanging: false,
                         preformatted: false,
                         lines: vec![line.cut((start.len() - trimmed_content.len() + ignore) as u32)],
                     },
@@ -783,7 +771,6 @@ impl Element {
         } else {
             Self::Paragraph {
                 depth: 0, // We will revisit this later
-                hanging: false,
                 preformatted: false,
                 lines: vec![line.clone()],
             }
@@ -824,7 +811,6 @@ impl Element {
 
             Element::Paragraph {
                 lines,
-                hanging: _,
                 preformatted: _,
                 depth,
             } => {
@@ -875,7 +861,6 @@ impl Element {
                             Some(num),
                             Element::Paragraph {
                                 depth: content_depth,
-                                hanging: false,
                                 preformatted: false,
                                 lines: vec![full_line.cut(content_start + content_depth + ignore as u32)],
                             },
@@ -947,7 +932,6 @@ impl Element {
                             true,
                             Element::Paragraph {
                                 depth: item_depth - content_start,
-                                hanging: false,
                                 preformatted: false,
                                 lines: vec![full_line.cut(item_depth + ignore as u32)],
                             },
@@ -1006,7 +990,6 @@ impl Element {
                 ..
             } if !lines.is_empty() => Some(Element::Paragraph {
                 depth: *depth,
-                hanging: false,
                 preformatted: false,
                 lines: Vec::new(),
             }),

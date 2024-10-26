@@ -30,7 +30,6 @@ pub struct Section {
 pub enum Element {
     Paragraph {
         depth: u32,
-        hanging: bool,
         preformatted: bool,
         lines: Vec<Line>,
     },
@@ -60,12 +59,10 @@ impl Element {
         match element {
             Phase3Element::Paragraph {
                 depth,
-                hanging,
                 preformatted,
                 lines,
             } => Element::Paragraph {
                 depth,
-                hanging,
                 preformatted,
                 lines,
             },
@@ -137,6 +134,7 @@ impl Phase4Document {
         this.combine_paragraphs();
         this.find_double_column_deflist();
         this.fixup_broken_table();
+        this.fixup_broken_author_list();
 
         Ok(this)
     }
@@ -149,7 +147,6 @@ impl Phase4Document {
                 Element::Paragraph {
                     lines,
                     depth,
-                    hanging,
                     preformatted,
                 } => {
                     if *preformatted {
@@ -304,26 +301,27 @@ impl Phase4Document {
                     depth: depth_this,
                     preformatted: false,
                     lines: lines_this,
-                    hanging: hanging_this,
                 } = &section.elements[i]
                 else {
                     i += 1;
                     continue;
                 };
+                let depth_this = *depth_this;
 
                 let Element::Paragraph {
                     depth: depth_next,
                     preformatted: false,
                     lines: lines_next,
-                    hanging: _,
                 } = &section.elements[i + 1]
                 else {
                     i += 1;
                     continue;
                 };
 
-                if (*depth_this != *depth_next) && (*hanging_this && *depth_next + 3 != *depth_next)
-                {
+                let true_depth_this = depth_this
+                    + lines_this.last().map(|line| line.text.chars().take_while(|c| *c == ' ').count() as u32).unwrap_or(0);
+
+                if true_depth_this != *depth_next {
                     i += 1;
                     continue;
                 }
@@ -380,7 +378,8 @@ impl Phase4Document {
                     unreachable!()
                 };
 
-                lines_this.extend_from_slice(&lines_next);
+                lines_this.extend(lines_next.iter().map(|line| line.pad(true_depth_this - depth_this)));
+                // lines_this.extend_from_slice(&lines_next);
             }
         }
     }
@@ -441,7 +440,6 @@ impl Phase4Document {
 
                             *element = Element::Paragraph {
                                 depth: deflist_depth,
-                                hanging: false,
                                 preformatted,
                                 lines,
                             };
@@ -658,5 +656,35 @@ impl Phase4Document {
                 }
             }
         }
+    }
+
+    fn fixup_broken_author_list(&mut self) {
+        let section = self.sections
+            .iter_mut()
+            .find(|sect| sect.title.to_ascii_lowercase().ends_with("authors' addresses"));
+
+        let Some(section) = section else {
+            return
+        };
+
+        let mut new_lines = Vec::new();
+
+        for element in &section.elements {
+            let Element::Paragraph { lines, .. } = element else {
+                continue
+            };
+
+            new_lines.extend_from_slice(lines);
+        }
+
+        for line in &mut new_lines {
+            line.connector = Some('\n');
+        }
+
+        section.elements = vec![Element::Paragraph {
+            depth: 3,
+            preformatted: true,
+            lines: new_lines,
+        }];
     }
 }
