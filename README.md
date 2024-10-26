@@ -5,12 +5,13 @@ published in a plain-text ASCII format, into a richer HTML document which can
 then decorated with CSS.
 
 Here is an example of [RFC 6887](https://www.rfc-editor.org/rfc/rfc6887) after
-being prettified by the tool (the secret CSS sauce is **not** included):
+it is prettified by the tool:
 
-<img src="./screenshot.png" alt="RFC 6887 prettified" height=350px>
+<img src="./screenshot.png" alt="RFC 6887 prettified" width="70%">
 
-But please understand that **the tool is still in development and its output is not perfect**.
-Thanks.
+Please understand that the tool is making up new markup information on a best-effort
+basis (the original RFC documents, in plain text, obviously do not contain any
+markup information). **It can produce erroneous results.**
 
 ## Usage
 
