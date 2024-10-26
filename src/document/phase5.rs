@@ -58,30 +58,50 @@ r##"
             dl dt {{
                 width: 8em;
                 float: left;
+                clear: left;
+                padding: 0.5em 0 0 0.5em;
+            }}
+            dl dd {{
+                margin-left: 8.5em;
+                padding: 0.5em 0 0.5em 0.5em;
             }}
             .author {{
+                display: block;
                 float: left;
-                margin: 0 0.33em 0 0;
+                margin: 0;
                 text-align: center;
             }}
             .author-org {{
                 font-style: italic;
             }}
-            .ident-1 {{
+            .obsoletes {{
+                float: left;
+            }}
+            .indent-1 {{
                 padding-left: 1.5rem;
             }}
-            .ident-2 {{
+            .indent-2 {{
                 padding-left: 3rem;
             }}
-            .ident-3 {{
+            .indent-3 {{
                 padding-left: 4.5rem;
             }}
-            .ident-4 {{
+            .indent-4 {{
                 padding-left: 6rem;
+            }}
+            .indent-5 {{
+                padding-left: 7.5rem;
+            }}
+            .indent-6,
+            .indent-7,
+            .indent-8,
+            .indent-9,
+            .indent-10 {{
+                padding-left: 9rem;
             }}
             .start-info {{
                 font-size: 0.9em;
-                padding-bottom: 3em;
+                padding-bottom: 5em;
             }}
             .hanging {{
                 padding-left: 1.5rem;
@@ -399,10 +419,13 @@ impl Phase5Document {
         result.push_str(&format!("<dt>Stream:</dt><dd>{}</dd>", stream));
         result.push_str(&format!("<dt>RFC:</dt><dd>{}</dd>", rfc));
         if !obsoletes.is_empty() {
-            result.push_str(&format!("<dt>Obsoletes:</dt>"));
+            result.push_str(&format!("<dt>Obsoletes:</dt><dd>"));
             for (rfc, name) in obsoletes {
-                result.push_str(&format!("<dd><a href=\"./rfc{}\">{}</a></dd>", rfc, name));
+                result.push_str(&format!("<a href=\"./rfc{}\">{}</a>, ", rfc, name));
             }
+            result.pop();
+            result.pop();
+            result.push_str("</dd>");
         }
         result.push_str(&format!("<dt>Category:</dt><dd>{}</dd>", category));
         result.push_str(&format!("<dt>Date:</dt><dd>{}</dd>", date));

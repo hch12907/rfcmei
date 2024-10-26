@@ -135,6 +135,7 @@ impl Phase4Document {
         this.find_double_column_deflist();
         this.fixup_broken_table();
         this.fixup_broken_author_list();
+        this.fixup_broken_references();
 
         Ok(this)
     }
@@ -654,6 +655,22 @@ impl Phase4Document {
                         i += 1;
                     }
                 }
+            }
+        }
+    }
+
+    fn fixup_broken_references(&mut self) {
+        let sections = self.sections
+            .iter_mut()
+            .filter(|sect| sect.title.to_ascii_lowercase().ends_with("references"));
+
+        for section in sections {
+            for element in &mut section.elements {
+                let Element::Paragraph { preformatted, .. } = element else {
+                    continue
+                };
+
+                *preformatted = false;
             }
         }
     }
