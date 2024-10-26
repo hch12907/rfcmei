@@ -13,17 +13,17 @@ use super::phase3::{
 
 #[derive(Debug, Clone)]
 pub struct Phase4Document {
-    start_info: StartInfo,
-    title: Box<str>,
-    sections: Vec<Section>,
+    pub start_info: StartInfo,
+    pub title: Box<str>,
+    pub sections: Vec<Section>,
 }
 
 #[derive(Debug, Clone)]
 pub struct Section {
-    id: Option<Box<str>>, // An optional fragment-identifier for the section.
-    level: usize,         // Level of the section, starts from 0 as the outermost level
-    title: Box<str>,
-    elements: Vec<Element>,
+    pub id: Option<Box<str>>, // An optional fragment-identifier for the section.
+    pub level: usize,         // Level of the section, starts from 0 as the outermost level
+    pub title: Box<str>,
+    pub elements: Vec<Element>,
 }
 
 #[derive(Debug, Clone)]

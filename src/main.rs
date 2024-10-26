@@ -8,6 +8,7 @@ use std::io::Read;
 use std::path::PathBuf;
 
 use argh::FromArgs;
+use document::phase1::Phase1Document;
 use document::phase2::Phase2Document;
 use document::phase3::Phase3Document;
 use document::phase4::Phase4Document;
@@ -34,7 +35,7 @@ fn main() -> Result<(), String> {
 
     let dom = Tree::from_tokens(Tokenizer::new(&rfc_xhtml).infallible()).unwrap();
 
-    let document = Document::from_html(dom)?;
+    let document = Phase1Document::from_html(dom)?;
     // println!("{}", document.print());
 
     let phase2 = Phase2Document::from_phase1(document)?;
@@ -45,7 +46,10 @@ fn main() -> Result<(), String> {
     // println!("{}", phase3.print());
 
     let phase4 = Phase4Document::from_phase3(phase3)?;
-    println!("{}", phase4.print());
+    // println!("{}", phase4.print());
+
+    let phase5 = Document::from_phase4(phase4);
+    println!("{}", phase5.print());
 
     Ok(())
 }

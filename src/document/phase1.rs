@@ -68,12 +68,12 @@ impl Element {
 }
 
 #[derive(Debug, Clone)]
-pub struct Document {
+pub struct Phase1Document {
     pub(super) meta_info: Vec<MetaElement>,
     pub(super) elements: Vec<Element>,
 }
 
-impl Document {
+impl Phase1Document {
     pub fn from_html(html: Tree) -> Result<Self, String> {
         let mut this = Self {
             meta_info: Vec::new(),
@@ -470,7 +470,7 @@ impl Document {
 
 #[derive(Debug, Clone)]
 pub(super) struct DocumentLines<'a> {
-    document: &'a Document,
+    document: &'a Phase1Document,
     start_index: usize,
 }
 

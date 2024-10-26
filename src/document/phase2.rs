@@ -9,7 +9,7 @@ use regex::Regex;
 
 use crate::document::phase1::MetaElement;
 
-use super::phase1::{Document as Phase1Document, Element as Phase1Element};
+use super::phase1::{Phase1Document as Phase1Document, Element as Phase1Element};
 
 /// This struct represents the information found in the topmost section of all RFC
 /// contents
@@ -89,6 +89,8 @@ pub enum LineMetadataKind {
     Reference(Box<str>),
     /// See [Phase1Element::Anchor].
     Anchor(Box<str>),
+    /// Keywords are bolded in the final output.
+    Keyword,
 }
 
 #[derive(Debug, Clone)]

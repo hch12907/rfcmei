@@ -230,51 +230,6 @@ impl Section {
             }
         }
 
-        // Merge neighbouring preformatted blocks together.
-        let mut i = 0;
-        while i < self.elements.len().saturating_sub(1) {
-            let Element::Paragraph {
-                depth: depth_this,
-                hanging: hanging_this,
-                preformatted: preformatted_this,
-                lines: _,
-            } = &self.elements[i] else {
-                i += 1;
-                continue
-            };
-
-            let Element::Paragraph {
-                depth: depth_next,
-                hanging: hanging_next,
-                preformatted: preformatted_next,
-                lines: _,
-            } = &self.elements[i + 1] else {
-                i += 1;
-                continue
-            };
-
-            if *depth_this != *depth_next
-                || *hanging_this
-                || *hanging_next
-                || !*preformatted_this
-                || !*preformatted_next
-            {
-                i += 1;
-                continue
-            }
-
-            // We will merge the next element into the current one.
-            let Element::Paragraph { lines: lines_next, .. } = self.elements.remove(i + 1) else {
-                unreachable!();
-            };
-            let Element::Paragraph { lines, .. } = &mut self.elements[i] else {
-                unreachable!()
-            };
-            // Neighbouring [Element::Paragraph]s are separated by a blank line.
-            lines.push(Line::new());
-            lines.extend_from_slice(&lines_next);
-        }
-
         // If there is a list in between two preformatted blocks, there is a
         // possibility it is a misanalysis. Undo the list.
         let mut i = 1;
@@ -342,6 +297,51 @@ impl Section {
 
                 lines.push(new_line);
             }
+        }
+
+        // Merge neighbouring preformatted blocks together.
+        let mut i = 0;
+        while i < self.elements.len().saturating_sub(1) {
+            let Element::Paragraph {
+                depth: depth_this,
+                hanging: hanging_this,
+                preformatted: preformatted_this,
+                lines: _,
+            } = &self.elements[i] else {
+                i += 1;
+                continue
+            };
+
+            let Element::Paragraph {
+                depth: depth_next,
+                hanging: hanging_next,
+                preformatted: preformatted_next,
+                lines: _,
+            } = &self.elements[i + 1] else {
+                i += 1;
+                continue
+            };
+
+            if *depth_this != *depth_next
+                || *hanging_this
+                || *hanging_next
+                || !*preformatted_this
+                || !*preformatted_next
+            {
+                i += 1;
+                continue
+            }
+
+            // We will merge the next element into the current one.
+            let Element::Paragraph { lines: lines_next, .. } = self.elements.remove(i + 1) else {
+                unreachable!();
+            };
+            let Element::Paragraph { lines, .. } = &mut self.elements[i] else {
+                unreachable!()
+            };
+            // Neighbouring [Element::Paragraph]s are separated by a blank line.
+            lines.push(Line::new());
+            lines.extend_from_slice(&lines_next);
         }
 
         // Remove connectors or replace them with a space in non-preformatted
