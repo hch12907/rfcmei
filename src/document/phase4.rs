@@ -500,17 +500,18 @@ impl Phase4Document {
                             }
                         }
 
-                        if is_reference {
-                            if let Some(found) = REFERENCE_LEFT_COLUMN.find(&line.text) {
-                                if starting_element.is_none() {
-                                    starting_element = Some((i, j));
-                                    second_column_start = found.len();
-                                    deflist_depth = depth;
-                                } else {
-                                    ending_element = Some((i, j));
-                                }
+                        if is_reference
+                            && let Some(found) = REFERENCE_LEFT_COLUMN.find(&line.text)
+                        {
+                            if starting_element.is_none() {
+                                starting_element = Some((i, j));
+                                second_column_start = found.len();
+                                deflist_depth = depth;
+                            } else {
+                                ending_element = Some((i, j));
                             }
-                        } else if let Some(found) = line.text.rfind(&separator)
+                        } else if !is_reference
+                            && let Some(found) = line.text.rfind(&separator)
                             && line
                                 .text
                                 .as_bytes()
@@ -545,7 +546,7 @@ impl Phase4Document {
 
                             if too_short || before_not_space || itself_not_space {
                                 starting_element = None;
-                                break 'this_element;
+                                continue;
                             }
 
                             ending_element = Some((i, j));
