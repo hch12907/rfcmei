@@ -370,12 +370,13 @@ impl Section {
         static FIGCAPTION_REGEX: LazyLock<Regex> = LazyLock::new(|| {
             // Ugly regex. A few things here:
             // 1. Match 3 or more spaces. Capture it for use later.
-            // 2. Match "Figure N." or "Figure N:" or "Figure N".
+            // 2. Match "Figure N." or "Figure N:".
+            //    (other than Figure, Table is also accepted.)
             // 3. Match the word after step 2.
             // 4. Match everything else until the end.
 
             // Step 1 assumes the caption is center-aligned.
-            Regex::new(r"^([ ]{3,})Figure \d+[:.]? \w+.*$").unwrap()
+            Regex::new(r"^([ ]{3,})(Figure|Table) \d+[:.] \w+.*$").unwrap()
         });
 
         // Match for something that vaguely resembles a line of C.
@@ -436,14 +437,34 @@ impl Section {
             }
         }
 
+        // But if there is no space at all in the line (not counting the initial
+        // spaces), then perhaps we are looking at a code block?
+        if !properly_ended
+            && !trimmed_line.contains(' ')
+            && trimmed_line.len() > 60
+        {
+            graphical_chars += 10;
+        }
+
         for b in trimmed_line.bytes() {
             graphical_chars += GRAPHICAL_CANDIDATES.contains(&b) as usize;
         }
 
-        // Cheats! For known patterns, we artificially inflate the score
+        // Cheats! For known patterns, we artificially inflate the score:
+        // Frequently found in RFCs documenting packets.
         if trimmed_line.contains("0                   1                   2                   3") {
             graphical_chars += 100;
-        } else if let Some(captured) = FIGCAPTION_REGEX.captures(line) {
+        }
+        // X.509 certs.
+        else if trimmed_line.starts_with("-----BEGIN CERTIFICATE-----") {
+            graphical_chars += 100;
+        }
+        // X.509 certs.
+        else if trimmed_line.starts_with("-----END CERTIFICATE-----") {
+            graphical_chars += 100;
+        }
+        // Figcaption detection.
+        else if let Some(captured) = FIGCAPTION_REGEX.captures(line) {
             let left_spaces = captured[1].len();
             let whole_line = (left_spaces * 2 + trimmed_line.len()) as i32;
 
@@ -452,7 +473,9 @@ impl Section {
             if (whole_line - 72).abs() <= 2 {
                 graphical_chars += 100;
             }
-        } else if C_CODE_REGEX.is_match(line) {
+        }
+        // C code (or any pseudocode resembling it).
+        else if C_CODE_REGEX.is_match(line) {
             graphical_chars += 100;
         }
 
