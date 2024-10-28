@@ -111,7 +111,7 @@ impl Line {
 
         let result = Line {
             text: self.text[start..end].to_owned(),
-            connector: if self.text.len() == end + 1 { self.connector } else { None },
+            connector: if self.text.len() == end { self.connector } else { None },
             metadata: self.metadata.iter()
                 .cloned()
                 .flat_map(|mut meta| {
@@ -130,7 +130,7 @@ impl Line {
 
         let remain = Line {
             text: self.text[..start].to_owned() + &self.text[end..],
-            connector: if self.text.len() == end + 1 { None } else { self.connector },
+            connector: if self.text.len() == end { None } else { self.connector },
             metadata: self.metadata.iter()
                 .cloned()
                 .flat_map(|mut meta| {
@@ -151,7 +151,7 @@ impl Line {
     }
 
     pub fn trim_end(&mut self) {
-        assert!(self.connector.is_none());
+        assert!(self.connector.is_none(), "{:?}", self);
         self.text = self.text.trim_end().to_owned();
     }
 }
