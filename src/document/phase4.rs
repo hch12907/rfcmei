@@ -393,7 +393,6 @@ impl Phase4Document {
                         .iter()
                         .map(|line| line.pad(true_depth_this - depth_this)),
                 );
-                // lines_this.extend_from_slice(&lines_next);
             }
         }
     }

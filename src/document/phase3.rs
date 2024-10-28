@@ -776,7 +776,7 @@ impl Element {
         let trimmed_start = start.trim_start_matches(' ');
         let start_depth = (start.len() - trimmed_start.len()) as u32;
 
-        assert!(start_depth > 0);
+        assert!(start_depth > 0 || ignore > 0);
 
         if let Some((style, depth)) = UnorderedListStyle::extract_from_line(start) {
             Self::UnorderedList {
