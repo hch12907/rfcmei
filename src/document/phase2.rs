@@ -4,6 +4,7 @@
 //! for easier analysis in later Phases.
 
 use std::collections::BTreeMap;
+use std::ops::RangeBounds;
 
 use regex::Regex;
 
@@ -93,6 +94,65 @@ impl Line {
                 })
                 .collect()
         }
+    }
+
+    pub fn carve_out<R: RangeBounds<usize>>(&self, at: R) -> (Line, Line) {
+        let start = match at.start_bound() {
+            std::ops::Bound::Included(i) => *i,
+            std::ops::Bound::Excluded(_i) => unreachable!(),
+            std::ops::Bound::Unbounded => 0,
+        };
+
+        let end = match at.end_bound() {
+            std::ops::Bound::Included(i) => *i + 1,
+            std::ops::Bound::Excluded(i) => *i,
+            std::ops::Bound::Unbounded => todo!(),
+        };
+
+        let result = Line {
+            text: self.text[start..end].to_owned(),
+            connector: if self.text.len() == end + 1 { self.connector } else { None },
+            metadata: self.metadata.iter()
+                .cloned()
+                .flat_map(|mut meta| {
+                    if meta.column >= start as u32 
+                        && meta.column + meta.length <= end as u32
+                    {
+                        meta.column -= start as u32;
+                        meta.length = meta.length.min((end - start) as u32);
+                        Some(meta)
+                    } else {
+                        None
+                    }
+                })
+                .collect()
+        };
+
+        let remain = Line {
+            text: self.text[..start].to_owned() + &self.text[end..],
+            connector: if self.text.len() == end + 1 { None } else { self.connector },
+            metadata: self.metadata.iter()
+                .cloned()
+                .flat_map(|mut meta| {
+                    if meta.column < start as u32
+                        || meta.column >= end as u32
+                    {
+                        meta.column -= start as u32;
+                        meta.length = meta.length.min((end - start) as u32);
+                        Some(meta)
+                    } else {
+                        None
+                    }
+                })
+                .collect()
+        };
+
+        (remain, result)
+    }
+
+    pub fn trim_end(&mut self) {
+        assert!(self.connector.is_none());
+        self.text = self.text.trim_end().to_owned();
     }
 }
 

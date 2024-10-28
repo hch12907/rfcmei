@@ -38,7 +38,7 @@ pub enum Element {
     },
     DefinitionList {
         depth: u32,
-        definitions: Vec<(String, Vec<Line>)>,
+        definitions: Vec<(Line, Vec<Line>)>,
     },
     OrderedList {
         depth: u32,
@@ -230,7 +230,10 @@ impl Phase4Document {
                 Element::DefinitionList { definitions, .. } => {
                     output.push_str("<dl>");
                     for (term, definition) in definitions {
-                        output.push_str(&format!("<dt>{}</dt>\n", term));
+                        output.push_str("<dt>");
+                        output.push_str(&term.text);
+                        output.push_str("</dt>");
+
                         output.push_str("<dd>");
                         for line in definition {
                             let text = &line
@@ -569,7 +572,7 @@ impl Phase4Document {
                     continue;
                 };
 
-                let mut term = String::new();
+                let mut term = Line::new();
                 let mut def = Vec::new();
                 for (i, element) in section.elements[starting_element.0..=ending_element.0]
                     .iter()
@@ -592,10 +595,11 @@ impl Phase4Document {
                             continue;
                         }
 
-                        let new_term = line.text[..second_column_start].trim_end().to_owned();
+                        let (_, mut new_term) = line.carve_out(..second_column_start);
+                        new_term.trim_end();
 
-                        if !new_term.is_empty() {
-                            if !term.is_empty() {
+                        if !new_term.text.trim_end().is_empty() {
+                            if !term.text.is_empty() {
                                 deflist_defs.push((term, std::mem::take(&mut def)));
                             }
                             term = new_term;

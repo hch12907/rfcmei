@@ -389,7 +389,9 @@ impl Phase5Document {
 
                     output.push_str(&format!("<dl {}>", class));
                     for (term, definition) in definitions {
-                        output.push_str(&format!("<dt>{}</dt>\n", term));
+                        output.push_str("<dt>");
+                        print_line("", term, output);
+                        output.push_str("</dt>");
                         output.push_str("<dd>");
                         for line in definition {
                             print_line("", line, output);
