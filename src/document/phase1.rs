@@ -328,7 +328,12 @@ impl Phase1Document {
                     for child in first.children().iter().chain(rest.iter()) {
                         match child {
                             Node::Raw(content) => new_inner.push_str(content),
-                            _ => return Err("unexpected nested tag in <span><a>".to_string()),
+                            Node::Tag { inner, .. } => {
+                                eprintln!("warning: found nested tag in <span><a>, forcing it into plain text: {:?}", child);
+                                for inner in inner {
+                                    new_inner.push_str(&inner.to_text());
+                                }
+                            },
                         }
                     }
 

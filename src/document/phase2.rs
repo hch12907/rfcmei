@@ -19,6 +19,7 @@ pub struct StartInfo {
     pub stream: Box<str>,
     pub rfc: u32,
     pub obsoletes: Vec<(u32, Box<str>)>,
+    pub updates: Vec<(u32, Box<str>)>,
     pub date: Box<str>,
     pub category: Box<str>,
     pub others: BTreeMap<String, String>,
@@ -323,7 +324,14 @@ impl Phase2Document {
 
         let mut this = StartInfo::default();
 
-        let mut parsing_obselete = false;
+        #[derive(Debug, PartialEq, Eq)]
+        enum State {
+            Anything,
+            Obsolete,
+            Update,
+        }
+
+        let mut parsing_state = State::Anything;
         let mut left_column = Vec::new();
         let mut right_column = Vec::new();
 
@@ -413,7 +421,7 @@ impl Phase2Document {
         for p1_element in &left_column[1..] {
             match p1_element {
                 Phase1Element::Line(text) if text.starts_with("Request for Comments:") => {
-                    parsing_obselete = false;
+                    parsing_state = State::Anything;
 
                     let regex = Regex::new(r"^Request for Comments:[ ]+(\d+)").unwrap();
 
@@ -426,11 +434,15 @@ impl Phase2Document {
                 }
 
                 Phase1Element::Line(text) if text.starts_with("Obsoletes:") => {
-                    parsing_obselete = true;
+                    parsing_state = State::Obsolete;
+                }
+
+                Phase1Element::Line(text) if text.starts_with("Updates:") => {
+                    parsing_state = State::Update;
                 }
 
                 Phase1Element::Line(text) if text.starts_with("Category:") => {
-                    parsing_obselete = false;
+                    parsing_state = State::Anything;
                     this.category = text
                         .strip_prefix("Category:")
                         .unwrap()
@@ -439,8 +451,7 @@ impl Phase2Document {
                         .into_boxed_str();
                 }
 
-                Phase1Element::Line(text) if text.contains(':') && !parsing_obselete => {
-                    parsing_obselete = false;
+                Phase1Element::Line(text) if text.contains(':') && parsing_state == State::Anything => {
                     let mut split = text.split(':');
                     let first = split.next().unwrap().trim_start();
                     let second = split.next().unwrap().trim();
@@ -448,9 +459,10 @@ impl Phase2Document {
                     this.others.insert(first.to_string(), second.to_string());
                 }
 
-                Phase1Element::Line(text) if text.starts_with(",") && parsing_obselete => continue,
+                Phase1Element::Line(text) if text.starts_with(",") && parsing_state == State::Obsolete => continue,
+                Phase1Element::Line(text) if text.starts_with(",") && parsing_state == State::Anything => continue,
 
-                Phase1Element::Reference(doc, title) if parsing_obselete => {
+                Phase1Element::Reference(doc, title) if parsing_state == State::Obsolete => {
                     if let Some(captured) = doc_regex.captures(&doc) {
                         let doc = captured[1].parse::<u32>().unwrap();
                         this.obsoletes.push((doc, title.clone()))
@@ -459,7 +471,16 @@ impl Phase2Document {
                     }
                 }
 
-                Phase1Element::Reference(_, _) if !parsing_obselete => {
+                Phase1Element::Reference(doc, title) if parsing_state == State::Update => {
+                    if let Some(captured) = doc_regex.captures(&doc) {
+                        let doc = captured[1].parse::<u32>().unwrap();
+                        this.updates.push((doc, title.clone()))
+                    } else {
+                        return Err("unexpected reference in start info".into());
+                    }
+                }
+
+                Phase1Element::Reference(_, _) if parsing_state == State::Anything => {
                     return Err("unexpected reference in start info".into())
                 }
 

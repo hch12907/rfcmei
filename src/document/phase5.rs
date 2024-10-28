@@ -65,6 +65,9 @@ r##"
                 margin-left: 8.5em;
                 padding: 0.5em 0 0.5em 0.5em;
             }}
+            pre {{
+                line-height: 1.25em;
+            }}
             .author {{
                 display: block;
                 float: left;
@@ -105,7 +108,7 @@ r##"
             }}
             .start-info dt,
             .start-info dd {{
-                padding: 0.1em;
+                padding: 0;
             }}
             .hanging {{
                 padding-left: 1.5rem;
@@ -418,7 +421,7 @@ impl Phase5Document {
             }
         }
 
-        let StartInfo { stream, rfc, obsoletes, date, category, others, authors } = &self.document.start_info;
+        let StartInfo { stream, rfc, obsoletes, updates, date, category, others, authors } = &self.document.start_info;
         result.push_str("<dl class=\"start-info\">");
         result.push_str(&format!("<dt>Stream:</dt><dd>{}</dd>", stream));
         result.push_str(&format!("<dt>RFC:</dt><dd>{}</dd>", rfc));
@@ -431,15 +434,25 @@ impl Phase5Document {
             result.pop();
             result.push_str("</dd>");
         }
+        if !updates.is_empty() {
+            result.push_str(&format!("<dt>Updates:</dt><dd>"));
+            for (rfc, name) in updates {
+                result.push_str(&format!("<a href=\"./rfc{}\">{}</a>, ", rfc, name));
+            }
+            result.pop();
+            result.pop();
+            result.push_str("</dd>");
+        }
         result.push_str(&format!("<dt>Category:</dt><dd>{}</dd>", category));
         result.push_str(&format!("<dt>Date:</dt><dd>{}</dd>", date));
         for (term, def) in others {
             result.push_str(&format!("<dt>{}:</dt><dd>{}</dd>", term, def));
         }
-        result.push_str(&format!("<dt>Authors:</dt>"));
+        result.push_str(&format!("<dt>Authors:</dt><div class=\"authors\">"));
         for (name, org) in authors {
             result.push_str(&format!("<dd class=\"author\"><div class=\"author-name\">{}</div><div class=\"author-org\">{}</div></dd>", name, org));
         }
+        result.push_str("</div>");
         result.push_str("</dl>");
 
         result.push_str(&format!("<h1>{}</h1>", &self.document.title));
@@ -478,7 +491,11 @@ impl Phase5Document {
 
         fn mark_keywords_in_element(element: &mut Element) {
             match element {
-                Element::Paragraph { lines, .. } => {
+                Element::Paragraph { preformatted, lines, .. } => {
+                    if *preformatted {
+                        return                        
+                    }
+
                     for line in lines {
                         for keyword in KEYWORDS_REGEX.find_iter(&line.text) {
                             line.metadata.push(LineMetadata {

@@ -124,6 +124,19 @@ impl Node {
         }
     }
 
+    pub fn to_text(&self) -> String {
+        let mut result = String::new();
+        match self {
+            Node::Raw(content) => result.push_str(content),
+            Node::Tag { inner, .. } => {
+                for inner in inner {
+                    result.push_str(&inner.to_text());
+                }
+            },
+        }
+        result
+    }
+
     fn from_tokens<I>(iter: &mut I) -> NodeResult
     where
         I: Iterator<Item = Token>,
