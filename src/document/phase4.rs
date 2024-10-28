@@ -478,6 +478,7 @@ impl Phase4Document {
 
                     for (j, line) in lines.iter().enumerate() {
                         if line.text.is_empty() {
+                            ending_element = Some((i, j));
                             continue;
                         }
 
@@ -498,7 +499,9 @@ impl Phase4Document {
                             } else if line.text.bytes().take_while(|c| *c == b' ').count()
                                 != second_column_start
                             {
-                                ending_element = Some((i, j));
+                                if ending_element.is_some() {
+                                    ending_element = Some((i, j));
+                                }
                                 break 'this_element;
                             }
                         }
@@ -549,7 +552,7 @@ impl Phase4Document {
 
                             if too_short || before_not_space || itself_not_space {
                                 starting_element = None;
-                                continue;
+                                continue 'this_element;
                             }
 
                             ending_element = Some((i, j));
