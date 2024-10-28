@@ -485,7 +485,7 @@ impl Phase5Document {
     fn mark_keywords(&mut self) {
         static KEYWORDS_REGEX: LazyLock<Regex> = LazyLock::new(|| {
             Regex::new(
-                "(MUST NOT|MUST|REQUIRED|SHALL NOT|SHALL|SHOULD NOT|SHOULD|NOT RECOMMENDED|RECOMMENDED|MAY|OPTIONAL)+"
+                r"\b(MUST NOT|MUST|REQUIRED|SHALL NOT|SHALL|SHOULD NOT|SHOULD|NOT RECOMMENDED|RECOMMENDED|MAY|OPTIONAL)\b"
             ).unwrap()
         });
 
