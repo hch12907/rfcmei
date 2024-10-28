@@ -16,22 +16,42 @@ pub(super) enum MetaElement {
 pub(super) enum Element {
     /// Ordinary text, does not cover the whole line. Has a flag to indicate
     /// whether it ends a line.
-    Text { text: Box<str>, ending: bool },
+    Text {
+        text: Box<str>,
+        ending: bool,
+    },
     /// Ordinary text, covers a whole line on its own.
     Line(Box<str>),
 
     /// `span[class="h1"]` and `<h1>`. Does not come with an anchor.
-    H1 { title: Box<str> },
+    H1 {
+        title: Box<str>,
+    },
     /// `span[class="h2"]` and `<h2>`. Comes with an anchor.
-    H2 { title: Box<str>, id: Box<str> },
+    H2 {
+        title: Box<str>,
+        id: Box<str>,
+    },
     /// `span[class="h3"]` and `<h3>`. Comes with an anchor.
-    H3 { title: Box<str>, id: Box<str> },
+    H3 {
+        title: Box<str>,
+        id: Box<str>,
+    },
     /// `span[class="h4"]` and `<h4>`. Comes with an anchor.
-    H4 { title: Box<str>, id: Box<str> },
+    H4 {
+        title: Box<str>,
+        id: Box<str>,
+    },
     /// `span[class="h5"]` and `<h5>`. Comes with an anchor.
-    H5 { title: Box<str>, id: Box<str> },
+    H5 {
+        title: Box<str>,
+        id: Box<str>,
+    },
     /// `span[class="h6"]` and `<h6>`. Comes with an anchor.
-    H6 { title: Box<str>, id: Box<str> },
+    H6 {
+        title: Box<str>,
+        id: Box<str>,
+    },
 
     /// <span> or <a> used as location marker, optionally contains text
     Anchor {
@@ -39,7 +59,7 @@ pub(super) enum Element {
         text: Option<Box<str>>,
     },
 
-    // A reference to other document (either another RFC or an entirely different 
+    // A reference to other document (either another RFC or an entirely different
     // site). The first field is always the location of the reference, while the
     // second field is always the innerHTML of the original <a> tag they originated
     // from.
@@ -60,10 +80,7 @@ impl Element {
     }
 
     pub(super) fn is_reference(&self) -> bool {
-        matches!(
-            self,
-            Element::Reference(_, _)
-        )
+        matches!(self, Element::Reference(_, _))
     }
 }
 
@@ -333,7 +350,7 @@ impl Phase1Document {
                                 for inner in inner {
                                     new_inner.push_str(&inner.to_text());
                                 }
-                            },
+                            }
                         }
                     }
 

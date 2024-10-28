@@ -10,7 +10,7 @@ use regex::Regex;
 
 use crate::document::phase1::MetaElement;
 
-use super::phase1::{Phase1Document as Phase1Document, Element as Phase1Element};
+use super::phase1::{Element as Phase1Element, Phase1Document};
 
 /// This struct represents the information found in the topmost section of all RFC
 /// contents
@@ -63,7 +63,9 @@ impl Line {
         Line {
             text: self.text[len as usize..].to_owned(),
             connector: self.connector,
-            metadata: self.metadata.iter()
+            metadata: self
+                .metadata
+                .iter()
                 .cloned()
                 .flat_map(|mut meta| {
                     if meta.column >= len {
@@ -73,7 +75,7 @@ impl Line {
                         None
                     }
                 })
-                .collect()
+                .collect(),
         }
     }
 
@@ -86,13 +88,15 @@ impl Line {
         Line {
             text: " ".repeat(to_pad) + &self.text,
             connector: self.connector,
-            metadata: self.metadata.iter()
+            metadata: self
+                .metadata
+                .iter()
                 .cloned()
                 .map(|mut meta| {
                     meta.column += to_pad as u32;
                     meta
                 })
-                .collect()
+                .collect(),
         }
     }
 
@@ -111,13 +115,17 @@ impl Line {
 
         let result = Line {
             text: self.text[start..end].to_owned(),
-            connector: if self.text.len() == end { self.connector } else { None },
-            metadata: self.metadata.iter()
+            connector: if self.text.len() == end {
+                self.connector
+            } else {
+                None
+            },
+            metadata: self
+                .metadata
+                .iter()
                 .cloned()
                 .flat_map(|mut meta| {
-                    if meta.column >= start as u32 
-                        && meta.column + meta.length <= end as u32
-                    {
+                    if meta.column >= start as u32 && meta.column + meta.length <= end as u32 {
                         meta.column -= start as u32;
                         meta.length = meta.length.min((end - start) as u32);
                         Some(meta)
@@ -125,18 +133,22 @@ impl Line {
                         None
                     }
                 })
-                .collect()
+                .collect(),
         };
 
         let remain = Line {
             text: self.text[..start].to_owned() + &self.text[end..],
-            connector: if self.text.len() == end { None } else { self.connector },
-            metadata: self.metadata.iter()
+            connector: if self.text.len() == end {
+                None
+            } else {
+                self.connector
+            },
+            metadata: self
+                .metadata
+                .iter()
                 .cloned()
                 .flat_map(|mut meta| {
-                    if meta.column < start as u32
-                        || meta.column >= end as u32
-                    {
+                    if meta.column < start as u32 || meta.column >= end as u32 {
                         meta.column -= start as u32;
                         meta.length = meta.length.min((end - start) as u32);
                         Some(meta)
@@ -144,7 +156,7 @@ impl Line {
                         None
                     }
                 })
-                .collect()
+                .collect(),
         };
 
         (remain, result)
@@ -511,7 +523,9 @@ impl Phase2Document {
                         .into_boxed_str();
                 }
 
-                Phase1Element::Line(text) if text.contains(':') && parsing_state == State::Anything => {
+                Phase1Element::Line(text)
+                    if text.contains(':') && parsing_state == State::Anything =>
+                {
                     let mut split = text.split(':');
                     let first = split.next().unwrap().trim_start();
                     let second = split.next().unwrap().trim();
@@ -519,11 +533,19 @@ impl Phase2Document {
                     this.others.insert(first.to_string(), second.to_string());
                 }
 
-                Phase1Element::Line(text) if text.starts_with(",") && parsing_state == State::Obsolete => continue,
-                Phase1Element::Line(text) if text.starts_with(",") && parsing_state == State::Anything => continue,
+                Phase1Element::Line(text)
+                    if text.starts_with(",") && parsing_state == State::Obsolete =>
+                {
+                    continue
+                }
+                Phase1Element::Line(text)
+                    if text.starts_with(",") && parsing_state == State::Anything =>
+                {
+                    continue
+                }
 
                 Phase1Element::Reference(doc, title) if parsing_state == State::Obsolete => {
-                    if let Some(captured) = doc_regex.captures(&doc) {
+                    if let Some(captured) = doc_regex.captures(doc) {
                         let doc = captured[1].parse::<u32>().unwrap();
                         this.obsoletes.push((doc, title.clone()))
                     } else {
@@ -532,7 +554,7 @@ impl Phase2Document {
                 }
 
                 Phase1Element::Reference(doc, title) if parsing_state == State::Update => {
-                    if let Some(captured) = doc_regex.captures(&doc) {
+                    if let Some(captured) = doc_regex.captures(doc) {
                         let doc = captured[1].parse::<u32>().unwrap();
                         this.updates.push((doc, title.clone()))
                     } else {

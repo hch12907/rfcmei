@@ -11,7 +11,6 @@ use super::phase2::Line;
 use super::phase3::OrderedListStyle;
 use super::phase4::Phase4Document;
 
-
 macro_rules! html_template {
     ($($key:ident = $val:ident),*) => {
         format!(
@@ -135,9 +134,7 @@ pub struct Phase5Document {
 
 impl Phase5Document {
     pub fn from_phase4(phase4: Phase4Document) -> Self {
-        let mut this = Self {
-            document: phase4
-        };
+        let mut this = Self { document: phase4 };
 
         this.mark_keywords();
 
@@ -154,16 +151,11 @@ impl Phase5Document {
                 let max_column = line.text.chars().count();
 
                 for (i, ch) in line.text.chars().enumerate() {
-                    let start_meta = line.metadata
-                        .iter()
-                        .find(|meta| meta.column == i as u32);
-                    let end_meta = line.metadata
-                        .iter()
-                        .find(|meta| {
-                            let end = (meta.column + meta.length)
-                                .min(max_column as u32 - 1);
-                            end == i as u32
-                        });
+                    let start_meta = line.metadata.iter().find(|meta| meta.column == i as u32);
+                    let end_meta = line.metadata.iter().find(|meta| {
+                        let end = (meta.column + meta.length).min(max_column as u32 - 1);
+                        end == i as u32
+                    });
 
                     let approaching_end = end_meta.is_some() && max_column - 1 == i;
                     if approaching_end {
@@ -180,25 +172,19 @@ impl Phase5Document {
                             column: _,
                             length: _,
                             kind: LineMetadataKind::Keyword,
-                        }) => {
-                            output.push_str("</strong>")
-                        },
+                        }) => output.push_str("</strong>"),
 
                         Some(LineMetadata {
                             column: _,
                             length: _,
                             kind: LineMetadataKind::Anchor(_),
-                        }) => {
-                            output.push_str("</span>")
-                        },
+                        }) => output.push_str("</span>"),
 
                         Some(LineMetadata {
                             column: _,
                             length: _,
                             kind: LineMetadataKind::Reference(_),
-                        }) => {
-                            output.push_str("</a>")
-                        },
+                        }) => output.push_str("</a>"),
 
                         None => (),
                     };
@@ -210,7 +196,7 @@ impl Phase5Document {
                             kind: LineMetadataKind::Keyword,
                         }) => {
                             output.push_str("<strong>");
-                        },
+                        }
 
                         Some(LineMetadata {
                             column: _,
@@ -218,7 +204,7 @@ impl Phase5Document {
                             kind: LineMetadataKind::Anchor(id),
                         }) => {
                             output.push_str(&format!("<span id=\"{}\">", id));
-                        },
+                        }
 
                         Some(LineMetadata {
                             column: _,
@@ -226,7 +212,7 @@ impl Phase5Document {
                             kind: LineMetadataKind::Reference(r),
                         }) => {
                             output.push_str(&format!("<a href=\"{}\">", r));
-                        },
+                        }
 
                         None => (),
                     };
@@ -253,11 +239,12 @@ impl Phase5Document {
                     preformatted,
                 } => {
                     let is_hanging = 'block: {
-                        let first_depth = lines.first()
+                        let first_depth = lines
+                            .first()
                             .map(|line| line.text.chars().take_while(|c| *c == ' ').count())
                             .unwrap_or(0);
-                        let next_depth = lines.iter()
-                            .nth(1)
+                        let next_depth = lines
+                            .get(1)
                             .map(|line| line.text.chars().take_while(|c| *c == ' ').count())
                             .unwrap_or(0);
 
@@ -303,13 +290,12 @@ impl Phase5Document {
                     };
 
                     for (i, line) in lines.iter().enumerate() {
-                        print_line(&space, line, output);
+                        print_line(space, line, output);
 
-                        if !*preformatted
-                            && let Some(next_line) = lines.get(i + 1)
-                        {
+                        if !*preformatted && let Some(next_line) = lines.get(i + 1) {
                             let depth_now = line.text.chars().take_while(|c| *c == ' ').count();
-                            let depth_next = next_line.text.chars().take_while(|c| *c == ' ').count();
+                            let depth_next =
+                                next_line.text.chars().take_while(|c| *c == ' ').count();
 
                             if depth_now != depth_next {
                                 output.push_str("<br>");
@@ -324,7 +310,12 @@ impl Phase5Document {
                     }
                 }
 
-                Element::OrderedList { depth, items, style, .. } => {
+                Element::OrderedList {
+                    depth,
+                    items,
+                    style,
+                    ..
+                } => {
                     let depth_class = depth.saturating_sub(3) / 3;
                     let class = if depth_class > 0 {
                         &format!("class=\"indent-{}\"", depth_class)
@@ -381,7 +372,9 @@ impl Phase5Document {
                     output.push_str("</li>");
                     output.push_str("</ul>\n");
                 }
-                Element::DefinitionList { depth, definitions, .. } => {
+                Element::DefinitionList {
+                    depth, definitions, ..
+                } => {
                     let depth_class = depth.saturating_sub(3) / 3;
                     let class = if depth_class > 0 {
                         &format!("class=\"indent-{}\"", depth_class)
@@ -425,12 +418,21 @@ impl Phase5Document {
             }
         }
 
-        let StartInfo { stream, rfc, obsoletes, updates, date, category, others, authors } = &self.document.start_info;
+        let StartInfo {
+            stream,
+            rfc,
+            obsoletes,
+            updates,
+            date,
+            category,
+            others,
+            authors,
+        } = &self.document.start_info;
         result.push_str("<dl class=\"start-info\">");
         result.push_str(&format!("<dt>Stream:</dt><dd>{}</dd>", stream));
         result.push_str(&format!("<dt>RFC:</dt><dd>{}</dd>", rfc));
         if !obsoletes.is_empty() {
-            result.push_str(&format!("<dt>Obsoletes:</dt><dd>"));
+            result.push_str("<dt>Obsoletes:</dt><dd>");
             for (rfc, name) in obsoletes {
                 result.push_str(&format!("<a href=\"./rfc{}\">{}</a>, ", rfc, name));
             }
@@ -439,7 +441,7 @@ impl Phase5Document {
             result.push_str("</dd>");
         }
         if !updates.is_empty() {
-            result.push_str(&format!("<dt>Updates:</dt><dd>"));
+            result.push_str("<dt>Updates:</dt><dd>");
             for (rfc, name) in updates {
                 result.push_str(&format!("<a href=\"./rfc{}\">{}</a>, ", rfc, name));
             }
@@ -452,7 +454,7 @@ impl Phase5Document {
         for (term, def) in others {
             result.push_str(&format!("<dt>{}:</dt><dd>{}</dd>", term, def));
         }
-        result.push_str(&format!("<dt>Authors:</dt><dd class=\"authors\">"));
+        result.push_str("<dt>Authors:</dt><dd class=\"authors\">");
         for (name, org) in authors {
             result.push_str(&format!("<div class=\"author\"><div class=\"author-name\">{}</div><div class=\"author-org\">{}</div></div>", name, org));
         }
@@ -482,7 +484,7 @@ impl Phase5Document {
 
         let rfc = &self.document.start_info.rfc;
         let title = &self.document.title;
-        html_template!(body=result, title=title, rfc=rfc)
+        html_template!(body = result, title = title, rfc = rfc)
     }
 
     fn mark_keywords(&mut self) {
@@ -494,9 +496,13 @@ impl Phase5Document {
 
         fn mark_keywords_in_element(element: &mut Element) {
             match element {
-                Element::Paragraph { preformatted, lines, .. } => {
+                Element::Paragraph {
+                    preformatted,
+                    lines,
+                    ..
+                } => {
                     if *preformatted {
-                        return                        
+                        return;
                     }
 
                     for line in lines {
@@ -511,7 +517,7 @@ impl Phase5Document {
                                 .sort_by(|meta1, meta2| meta1.column.cmp(&meta2.column));
                         }
                     }
-                },
+                }
                 Element::DefinitionList { definitions, .. } => {
                     for def in definitions {
                         for line in &mut def.1 {
@@ -527,17 +533,17 @@ impl Phase5Document {
                                 .sort_by(|meta1, meta2| meta1.column.cmp(&meta2.column));
                         }
                     }
-                },
+                }
                 Element::OrderedList { items, .. } => {
                     for item in items {
                         mark_keywords_in_element(&mut item.1);
                     }
-                },
+                }
                 Element::UnorderedList { items, .. } => {
                     for item in items {
                         mark_keywords_in_element(&mut item.1);
                     }
-                },
+                }
                 Element::Table { cells: _, .. } => todo!(),
             }
         }
@@ -549,4 +555,3 @@ impl Phase5Document {
         }
     }
 }
-

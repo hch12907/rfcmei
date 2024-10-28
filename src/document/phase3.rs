@@ -6,7 +6,7 @@ use std::sync::LazyLock;
 
 use regex::{Regex, RegexSet};
 
-use super::phase2::{Line, Phase2Document, StartInfo, Section as Phase2Section};
+use super::phase2::{Line, Phase2Document, Section as Phase2Section, StartInfo};
 
 #[derive(Debug, Clone)]
 pub struct Phase3Document {
@@ -20,7 +20,7 @@ impl Phase3Document {
         let Phase2Document {
             start_info,
             title,
-            sections
+            sections,
         } = phase2;
 
         let sections = sections
@@ -40,7 +40,12 @@ impl Phase3Document {
 
         fn print_element(element: &Element, output: &mut String) {
             match element {
-                Element::Paragraph { depth, preformatted, lines, .. } => {
+                Element::Paragraph {
+                    depth,
+                    preformatted,
+                    lines,
+                    ..
+                } => {
                     if *preformatted {
                         output.push_str("<pre>");
                     } else {
@@ -54,7 +59,7 @@ impl Phase3Document {
                     };
 
                     for line in lines {
-                        output.push_str(&space);
+                        output.push_str(space);
                         output.push_str(&line.text);
                         if let Some(connector) = line.connector {
                             output.push(connector);
@@ -66,8 +71,12 @@ impl Phase3Document {
                     } else {
                         output.push_str("</p>");
                     }
-                },
-                Element::OrderedList { depth: _, style, items } => {
+                }
+                Element::OrderedList {
+                    depth: _,
+                    style,
+                    items,
+                } => {
                     output.push_str(&format!(
                         "<ol type=\"{}\" start=\"{}\">",
                         match style {
@@ -94,8 +103,12 @@ impl Phase3Document {
                     }
                     output.push_str("</li>");
                     output.push_str("</ol>");
-                },
-                Element::UnorderedList { depth: _, style: _, items } => {
+                }
+                Element::UnorderedList {
+                    depth: _,
+                    style: _,
+                    items,
+                } => {
                     output.push_str("<ul>");
                     output.push_str("<li>");
                     print_element(&items[0].1, output);
@@ -108,7 +121,7 @@ impl Phase3Document {
                     }
                     output.push_str("</li>");
                     output.push_str("</ul>");
-                },
+                }
             }
         }
 
@@ -116,9 +129,9 @@ impl Phase3Document {
 
         for section in &self.sections {
             if section
-            .title
-            .to_ascii_lowercase()
-            .contains("table of contents")
+                .title
+                .to_ascii_lowercase()
+                .contains("table of contents")
             {
                 continue;
             }
@@ -151,7 +164,12 @@ pub struct Section {
 
 impl Section {
     fn from_phase2(phase2: Phase2Section) -> Result<Self, String> {
-        let Phase2Section { id, level, title, lines } = phase2;
+        let Phase2Section {
+            id,
+            level,
+            title,
+            lines,
+        } = phase2;
 
         let empty_lines = lines.iter().take_while(|line| line.text.is_empty()).count();
         let mut lines = lines.into_iter().skip(empty_lines);
@@ -177,7 +195,7 @@ impl Section {
             id,
             level,
             title,
-            elements
+            elements,
         };
         this.fixup_paragraphs();
 
@@ -188,7 +206,12 @@ impl Section {
         // Determine whether a paragraph is preformatted. While we are at it, also
         // find out the depth of the paragraph
         fn fixup_element(element: &mut Element) {
-            if let Element::Paragraph { depth, preformatted, lines } = element {
+            if let Element::Paragraph {
+                depth,
+                preformatted,
+                lines,
+            } = element
+            {
                 // If the ratio of code_lines : noncode_lines is >= 1, we consider
                 // the paragraph a preformatted block.
                 let mut code_lines = 0;
@@ -206,12 +229,12 @@ impl Section {
                         noncode_lines += 1
                     }
 
-                    common_depth = common_depth
-                        .min(line.text.chars().take_while(|c| *c == ' ').count());
+                    common_depth =
+                        common_depth.min(line.text.chars().take_while(|c| *c == ' ').count());
                 }
 
                 if code_lines == 0 && noncode_lines == 0 {
-                    return
+                    return;
                 }
 
                 if noncode_lines == 0 || code_lines / noncode_lines > 0 {
@@ -225,14 +248,23 @@ impl Section {
                 for line in lines.iter_mut() {
                     *line = line.cut(*depth);
                 }
-
-            } else if let Element::UnorderedList { depth: _, style: _, items } = element {
+            } else if let Element::UnorderedList {
+                depth: _,
+                style: _,
+                items,
+            } = element
+            {
                 for item in items {
                     if !item.0 {
                         fixup_element(&mut item.1);
                     }
                 }
-            } else if let Element::OrderedList { depth: _, style: _, items } = element {
+            } else if let Element::OrderedList {
+                depth: _,
+                style: _,
+                items,
+            } = element
+            {
                 for item in items {
                     if item.0.is_none() {
                         fixup_element(&mut item.1);
@@ -240,7 +272,7 @@ impl Section {
                 }
             }
         }
-        
+
         for element in &mut self.elements {
             fixup_element(element);
         }
@@ -253,18 +285,20 @@ impl Section {
                 depth: _,
                 style: _,
                 items: _,
-            } = &self.elements[i] else {
+            } = &self.elements[i]
+            else {
                 i += 1;
-                continue
+                continue;
             };
 
             let Element::Paragraph {
                 depth,
                 preformatted: true,
                 lines: _,
-            } = &self.elements[i - 1] else {
+            } = &self.elements[i - 1]
+            else {
                 i += 1;
-                continue
+                continue;
             };
             let depth = *depth;
 
@@ -272,12 +306,19 @@ impl Section {
                 depth: _,
                 preformatted: true,
                 lines: _,
-            } = &self.elements[i + 1] else {
+            } = &self.elements[i + 1]
+            else {
                 i += 1;
-                continue
+                continue;
             };
 
-            let Element::UnorderedList { depth: list_depth, style, items, .. } = self.elements.remove(i) else {
+            let Element::UnorderedList {
+                depth: list_depth,
+                style,
+                items,
+                ..
+            } = self.elements.remove(i)
+            else {
                 unreachable!();
             };
             let Element::Paragraph { lines, .. } = &mut self.elements[i - 1] else {
@@ -303,9 +344,17 @@ impl Section {
                         for line in lines {
                             new_line.text.push_str(&line.text);
                         }
-                    },
-                    Element::OrderedList { depth: _, style: _, items: _ } => todo!(),
-                    Element::UnorderedList { depth: _, style: _, items: _ } => todo!(),
+                    }
+                    Element::OrderedList {
+                        depth: _,
+                        style: _,
+                        items: _,
+                    } => todo!(),
+                    Element::UnorderedList {
+                        depth: _,
+                        style: _,
+                        items: _,
+                    } => todo!(),
                 }
 
                 lines.push(new_line);
@@ -319,30 +368,32 @@ impl Section {
                 depth: depth_this,
                 preformatted: preformatted_this,
                 lines: _,
-            } = &self.elements[i] else {
+            } = &self.elements[i]
+            else {
                 i += 1;
-                continue
+                continue;
             };
 
             let Element::Paragraph {
                 depth: depth_next,
                 preformatted: preformatted_next,
                 lines: _,
-            } = &self.elements[i + 1] else {
+            } = &self.elements[i + 1]
+            else {
                 i += 1;
-                continue
+                continue;
             };
 
-            if *depth_this != *depth_next
-                || !*preformatted_this
-                || !*preformatted_next
-            {
+            if *depth_this != *depth_next || !*preformatted_this || !*preformatted_next {
                 i += 1;
-                continue
+                continue;
             }
 
             // We will merge the next element into the current one.
-            let Element::Paragraph { lines: lines_next, .. } = self.elements.remove(i + 1) else {
+            let Element::Paragraph {
+                lines: lines_next, ..
+            } = self.elements.remove(i + 1)
+            else {
                 unreachable!();
             };
             let Element::Paragraph { lines, .. } = &mut self.elements[i] else {
@@ -360,15 +411,15 @@ impl Section {
                 depth: _,
                 preformatted: false,
                 lines,
-            } = element else {
-                continue
+            } = element
+            else {
+                continue;
             };
 
             for line in lines.iter_mut() {
                 let has_hyphened_word = line.text.ends_with('-')
-                    && line.text.as_bytes()[line.text.as_bytes().len() - 2]
-                        .is_ascii_alphabetic();
-                
+                    && line.text.as_bytes()[line.text.as_bytes().len() - 2].is_ascii_alphabetic();
+
                 if has_hyphened_word {
                     line.connector = None;
                 } else {
@@ -379,7 +430,8 @@ impl Section {
     }
 
     fn is_likely_preformatted(line: &str) -> bool {
-        const GRAPHICAL_CANDIDATES: [u8; 10] = [b'-', b'+', b'/', b'_', b':', b'*', b'\\', b'|', b'<', b'>'];
+        const GRAPHICAL_CANDIDATES: [u8; 10] =
+            [b'-', b'+', b'/', b'_', b':', b'*', b'\\', b'|', b'<', b'>'];
         const CODE_SCORE_THRESHOLD: usize = 800;
 
         // Code blocks often have a caption towards the end.
@@ -456,10 +508,7 @@ impl Section {
 
         // But if there is no space at all in the line (not counting the initial
         // spaces), then perhaps we are looking at a code block?
-        if !properly_ended
-            && !trimmed_line.contains(' ')
-            && trimmed_line.len() > 60
-        {
+        if !properly_ended && !trimmed_line.contains(' ') && trimmed_line.len() > 60 {
             graphical_chars += 10;
         }
 
@@ -826,7 +875,7 @@ impl Element {
         let line_depth = (line.len() - trimmed_line.len()) as u32;
 
         if full_line.text.is_empty() {
-            return self.encountered_blank_line()
+            return self.encountered_blank_line();
         }
 
         match self {
@@ -889,8 +938,7 @@ impl Element {
                     // Allow some tolerance for cmp(depth, item_depth)...
                     let depth_difference = line_depth as i32 - *depth as i32;
 
-                    let content_depth =
-                        content.chars().take_while(|c| *c == ' ').count() as u32;
+                    let content_depth = content.chars().take_while(|c| *c == ' ').count() as u32;
                     let content_start =
                         line_depth + marker.len() as u32 + item_style.occupied_space();
 
@@ -902,7 +950,9 @@ impl Element {
                             Element::Paragraph {
                                 depth: content_depth,
                                 preformatted: false,
-                                lines: vec![full_line.cut(content_start + content_depth + ignore as u32)],
+                                lines: vec![
+                                    full_line.cut(content_start + content_depth + ignore as u32)
+                                ],
                             },
                         ));
 
@@ -926,8 +976,7 @@ impl Element {
 
                     // Assumption: marker numbering takes one char
                     let content_start = *depth + style.occupied_space() + 1;
-                    let depth_difference =
-                        line_depth as i32 - (content_start + inner_depth) as i32;
+                    let depth_difference = line_depth as i32 - (content_start + inner_depth) as i32;
 
                     if depth_difference.abs() <= 1 {
                         // (content_start + inner_depth) == line_depth
@@ -961,8 +1010,7 @@ impl Element {
                 style,
                 items,
             } => {
-                if let Some((item_style, item_depth)) =
-                    UnorderedListStyle::extract_from_line(line)
+                if let Some((item_style, item_depth)) = UnorderedListStyle::extract_from_line(line)
                     && *style == item_style
                 {
                     let content_start = *depth + 1;
@@ -1025,9 +1073,7 @@ impl Element {
     fn encountered_blank_line(&mut self) -> Option<Self> {
         match self {
             Self::Paragraph {
-                depth,
-                ref lines,
-                ..
+                depth, ref lines, ..
             } if !lines.is_empty() => Some(Element::Paragraph {
                 depth: *depth,
                 preformatted: false,

@@ -166,7 +166,7 @@ impl Phase4Document {
                     };
 
                     for line in lines {
-                        output.push_str(&space);
+                        output.push_str(space);
                         let text = &line
                             .text
                             .replace('&', "&amp;")
@@ -241,7 +241,7 @@ impl Phase4Document {
                                 .replace('&', "&amp;")
                                 .replace('<', "&lt;")
                                 .replace('>', "&gt;");
-                            output.push_str(&text);
+                            output.push_str(text);
                             if let Some(connector) = line.connector {
                                 output.push(connector);
                             }
@@ -408,9 +408,8 @@ impl Phase4Document {
         const SPACE_THRESHOLD: usize = 3;
         let separator = " ".repeat(SPACE_THRESHOLD);
 
-        static REFERENCE_LEFT_COLUMN: LazyLock<Regex> = LazyLock::new(|| {
-            Regex::new(r"^[ ]*\[[A-Za-z0-9._\-]+\][ ]+").unwrap()
-        });
+        static REFERENCE_LEFT_COLUMN: LazyLock<Regex> =
+            LazyLock::new(|| Regex::new(r"^[ ]*\[[A-Za-z0-9._\-]+\][ ]+").unwrap());
 
         for section in &mut self.sections {
             // Reference sections will use a different logic to determine left and
@@ -505,8 +504,7 @@ impl Phase4Document {
                             }
                         }
 
-                        if is_reference
-                            && let Some(found) = REFERENCE_LEFT_COLUMN.find(&line.text)
+                        if is_reference && let Some(found) = REFERENCE_LEFT_COLUMN.find(&line.text)
                         {
                             if starting_element.is_none() {
                                 starting_element = Some((i, j));

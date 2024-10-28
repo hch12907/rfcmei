@@ -132,7 +132,7 @@ impl Node {
                 for inner in inner {
                     result.push_str(&inner.to_text());
                 }
-            },
+            }
         }
         result
     }
