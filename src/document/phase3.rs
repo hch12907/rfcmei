@@ -379,7 +379,7 @@ impl Section {
     }
 
     fn is_likely_preformatted(line: &str) -> bool {
-        const GRAPHICAL_CANDIDATES: [u8; 8] = [b'-', b'+', b'/', b'_', b':', b'*', b'\\', b'|'];
+        const GRAPHICAL_CANDIDATES: [u8; 10] = [b'-', b'+', b'/', b'_', b':', b'*', b'\\', b'|', b'<', b'>'];
         const CODE_SCORE_THRESHOLD: usize = 800;
 
         // Code blocks often have a caption towards the end.
