@@ -4,6 +4,9 @@
 //! corrected.
 
 use std::convert::identity;
+use std::sync::LazyLock;
+
+use regex::Regex;
 
 use super::phase2::{Line, StartInfo};
 use super::phase3::{
@@ -320,7 +323,10 @@ impl Phase4Document {
                 };
 
                 let true_depth_this = depth_this
-                    + lines_this.last().map(|line| line.text.chars().take_while(|c| *c == ' ').count() as u32).unwrap_or(0);
+                    + lines_this
+                        .last()
+                        .map(|line| line.text.chars().take_while(|c| *c == ' ').count() as u32)
+                        .unwrap_or(0);
 
                 if true_depth_this != *depth_next {
                     i += 1;
@@ -379,7 +385,11 @@ impl Phase4Document {
                     unreachable!()
                 };
 
-                lines_this.extend(lines_next.iter().map(|line| line.pad(true_depth_this - depth_this)));
+                lines_this.extend(
+                    lines_next
+                        .iter()
+                        .map(|line| line.pad(true_depth_this - depth_this)),
+                );
                 // lines_this.extend_from_slice(&lines_next);
             }
         }
@@ -394,9 +404,17 @@ impl Phase4Document {
         //   ...
 
         const SPACE_THRESHOLD: usize = 3;
-        let spaces = " ".repeat(SPACE_THRESHOLD);
+        let separator = " ".repeat(SPACE_THRESHOLD);
+
+        static REFERENCE_LEFT_COLUMN: LazyLock<Regex> = LazyLock::new(|| {
+            Regex::new(r"^[ ]*\[[A-Za-z0-9._\-]+\][ ]+").unwrap()
+        });
 
         for section in &mut self.sections {
+            // Reference sections will use a different logic to determine left and
+            // right columns.
+            let is_reference = section.title.ends_with("References");
+
             let mut skip_element = 0;
 
             while skip_element < section.elements.len() {
@@ -406,7 +424,9 @@ impl Phase4Document {
                 let mut starting_element = None;
                 let mut ending_element = None;
 
-                'this_element: for (i, element) in section.elements.iter_mut().enumerate().skip(skip_element) {
+                'this_element: for (i, element) in
+                    section.elements.iter_mut().enumerate().skip(skip_element)
+                {
                     let Element::Paragraph {
                         depth,
                         lines,
@@ -480,18 +500,28 @@ impl Phase4Document {
                             }
                         }
 
-                        if let Some(found) = line.text.rfind(&spaces)
+                        if is_reference {
+                            if let Some(found) = REFERENCE_LEFT_COLUMN.find(&line.text) {
+                                if starting_element.is_none() {
+                                    starting_element = Some((i, j));
+                                    second_column_start = found.len();
+                                    deflist_depth = depth;
+                                } else {
+                                    ending_element = Some((i, j));
+                                }
+                            }
+                        } else if let Some(found) = line.text.rfind(&separator)
                             && line
                                 .text
                                 .as_bytes()
-                                .get(found + SPACE_THRESHOLD)
+                                .get(found + separator.len())
                                 .unwrap_or(&0)
-                                .is_ascii_alphabetic()
+                                .is_ascii_alphanumeric()
                             && found < 60
                         {
                             if starting_element.is_none() {
                                 starting_element = Some((i, j));
-                                second_column_start = found + SPACE_THRESHOLD;
+                                second_column_start = found + separator.len();
                                 deflist_depth = depth;
                             } else {
                                 ending_element = Some((i, j));
@@ -582,7 +612,8 @@ impl Phase4Document {
 
                 // Remove the original elements
                 if starting_element.1 > 0 {
-                    if let Element::Paragraph { lines, .. } = &mut section.elements[starting_element.0]
+                    if let Element::Paragraph { lines, .. } =
+                        &mut section.elements[starting_element.0]
                     {
                         lines.drain(starting_element.1..);
                     } else {
@@ -590,7 +621,9 @@ impl Phase4Document {
                     }
                 }
                 if starting_element.0 != ending_element.0 && ending_element.1 > 0 {
-                    if let Element::Paragraph { lines, .. } = &mut section.elements[ending_element.0] {
+                    if let Element::Paragraph { lines, .. } =
+                        &mut section.elements[ending_element.0]
+                    {
                         lines.drain(..ending_element.1);
                     } else {
                         unreachable!();
@@ -620,33 +653,40 @@ impl Phase4Document {
     fn fixup_broken_table(&mut self) {
         for section in &mut self.sections {
             for element in &mut section.elements {
-                let Element::Paragraph { preformatted, lines, .. } = element else {
-                    continue
+                let Element::Paragraph {
+                    preformatted,
+                    lines,
+                    ..
+                } = element
+                else {
+                    continue;
                 };
 
                 if !*preformatted {
-                    continue
+                    continue;
                 }
 
                 let mut i = 0;
                 while i < lines.len() {
                     if !lines[i].text.is_empty() {
                         i += 1;
-                        continue
+                        continue;
                     }
-                    if lines[i-1].text.len() != lines[i+1].text.len() {
+                    if lines[i - 1].text.len() != lines[i + 1].text.len() {
                         i += 1;
-                        continue
+                        continue;
                     }
 
-                    if !lines[i-1].text.contains('|') {
+                    if !lines[i - 1].text.contains('|') {
                         i += 1;
-                        continue
+                        continue;
                     }
 
-                    let matches = lines[i-1].text.chars()
-                        .zip(lines[i+1].text.chars())
-                        .filter(|&(c1, c2)| c1 == '|' || c2 == '|' )
+                    let matches = lines[i - 1]
+                        .text
+                        .chars()
+                        .zip(lines[i + 1].text.chars())
+                        .filter(|&(c1, c2)| c1 == '|' || c2 == '|')
                         .map(|(c1, c2)| c1 == c2)
                         .all(identity);
 
@@ -660,14 +700,15 @@ impl Phase4Document {
     }
 
     fn fixup_broken_references(&mut self) {
-        let sections = self.sections
+        let sections = self
+            .sections
             .iter_mut()
             .filter(|sect| sect.title.to_ascii_lowercase().ends_with("references"));
 
         for section in sections {
             for element in &mut section.elements {
                 let Element::Paragraph { preformatted, .. } = element else {
-                    continue
+                    continue;
                 };
 
                 *preformatted = false;
@@ -676,19 +717,19 @@ impl Phase4Document {
     }
 
     fn fixup_broken_author_list(&mut self) {
-        let section = self.sections
-            .iter_mut()
-            .find(|sect| sect.title.to_ascii_lowercase().ends_with("authors' addresses"));
+        let section = self.sections.iter_mut().find(|sect| {
+            sect.title
+                .to_ascii_lowercase()
+                .ends_with("authors' addresses")
+        });
 
-        let Some(section) = section else {
-            return
-        };
+        let Some(section) = section else { return };
 
         let mut new_lines = Vec::new();
 
         for element in &section.elements {
             let Element::Paragraph { lines, .. } = element else {
-                continue
+                continue;
             };
 
             new_lines.extend_from_slice(lines);
