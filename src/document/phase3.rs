@@ -187,7 +187,7 @@ impl Section {
     fn fixup_paragraphs(&mut self) {
         // Determine whether a paragraph is preformatted. While we are at it, also
         // find out the depth of the paragraph
-        for element in &mut self.elements {
+        fn fixup_element(element: &mut Element) {
             if let Element::Paragraph { depth, preformatted, lines } = element {
                 // If the ratio of code_lines : noncode_lines is >= 1, we consider
                 // the paragraph a preformatted block.
@@ -200,7 +200,7 @@ impl Section {
                     .unwrap_or(0);
 
                 for line in lines.iter() {
-                    if Self::is_likely_preformatted(&line.text) {
+                    if Section::is_likely_preformatted(&line.text) {
                         code_lines += 1
                     } else {
                         noncode_lines += 1
@@ -211,7 +211,7 @@ impl Section {
                 }
 
                 if code_lines == 0 && noncode_lines == 0 {
-                    continue
+                    return
                 }
 
                 if noncode_lines == 0 || code_lines / noncode_lines > 0 {
@@ -225,7 +225,24 @@ impl Section {
                 for line in lines.iter_mut() {
                     *line = line.cut(*depth);
                 }
+
+            } else if let Element::UnorderedList { depth: _, style: _, items } = element {
+                for item in items {
+                    if !item.0 {
+                        fixup_element(&mut item.1);
+                    }
+                }
+            } else if let Element::OrderedList { depth: _, style: _, items } = element {
+                for item in items {
+                    if item.0.is_none() {
+                        fixup_element(&mut item.1);
+                    }
+                }
             }
+        }
+        
+        for element in &mut self.elements {
+            fixup_element(element);
         }
 
         // If there is a list in between two preformatted blocks, there is a
