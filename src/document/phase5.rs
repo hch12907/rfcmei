@@ -29,6 +29,7 @@ r##"
                 background-color: #fbfbf9;
                 max-width: 700px;
                 margin: auto;
+                padding: 0.8em;
             }}
             h1 {{
                 text-align: center;
@@ -58,8 +59,8 @@ r##"
             dl dt {{
                 width: 8em;
                 float: left;
-                clear: left;
-                padding: 0.5em 0 0 0.5em;
+                clear: both;
+                padding: 0.5em 0.5em 0 0;
             }}
             dl dd {{
                 margin-left: 8.5em;
@@ -67,11 +68,12 @@ r##"
             }}
             pre {{
                 line-height: 1.25em;
+                overflow: auto;
             }}
             .author {{
                 display: block;
                 float: left;
-                margin: 0;
+                margin: 0 0.5em 0.5em;
                 text-align: center;
             }}
             .author-org {{
@@ -450,12 +452,11 @@ impl Phase5Document {
         for (term, def) in others {
             result.push_str(&format!("<dt>{}:</dt><dd>{}</dd>", term, def));
         }
-        result.push_str(&format!("<dt>Authors:</dt><div class=\"authors\">"));
+        result.push_str(&format!("<dt>Authors:</dt><dd class=\"authors\">"));
         for (name, org) in authors {
-            result.push_str(&format!("<dd class=\"author\"><div class=\"author-name\">{}</div><div class=\"author-org\">{}</div></dd>", name, org));
+            result.push_str(&format!("<div class=\"author\"><div class=\"author-name\">{}</div><div class=\"author-org\">{}</div></div>", name, org));
         }
-        result.push_str("</div>");
-        result.push_str("</dl>");
+        result.push_str("</dd></dl>");
 
         result.push_str(&format!("<h1>{}</h1>", &self.document.title));
 
