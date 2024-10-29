@@ -134,11 +134,11 @@ impl Phase4Document {
             sections,
         };
 
-        this.combine_paragraphs();
-        this.find_double_column_deflist();
-        this.fixup_broken_table();
         this.fixup_broken_author_list();
         this.fixup_broken_references();
+        this.fixup_broken_table();
+        this.combine_paragraphs();
+        this.find_double_column_deflist();
 
         Ok(this)
     }
@@ -414,7 +414,13 @@ impl Phase4Document {
         for section in &mut self.sections {
             // Reference sections will use a different logic to determine left and
             // right columns.
-            let is_reference = section.title.ends_with("References");
+            let title = section.title.to_ascii_lowercase();
+            let is_reference = title.ends_with("references");
+
+            // Skip the author's addresses section
+            if title.ends_with("authors' addresses") || title.ends_with("author's address") {
+                continue
+            }
 
             let mut skip_element = 0;
 
@@ -723,9 +729,8 @@ impl Phase4Document {
 
     fn fixup_broken_author_list(&mut self) {
         let section = self.sections.iter_mut().find(|sect| {
-            sect.title
-                .to_ascii_lowercase()
-                .ends_with("authors' addresses")
+            let title = sect.title.to_ascii_lowercase();
+            title.ends_with("authors' addresses") || title.ends_with("author's address")
         });
 
         let Some(section) = section else { return };
