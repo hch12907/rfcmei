@@ -340,7 +340,9 @@ impl Section {
         // Match for something that vaguely resembles a line of C.
         static C_CODE_REGEX: LazyLock<RegexSet> = LazyLock::new(|| {
             RegexSet::new([
-                r"^[ ]+[a-z_][a-z0-9_]*\(.+\);",                // function call
+                // (This matches lowercase_functions() and F(), G(), P(), Q().
+                // The latter four are probably common in more mathematical RFCs.)
+                r"^[ ]+(?:[a-z_][a-z0-9_]|[FGPQ])*\(.+\);",     // function call
                 r"^[ ]+while ?\(1\)",                           // while(1) loop
                 r"^[ ]+if ?\(.+\)(?: \{)?$",                    // if statement
                 r"[a-z_][a-z0-9_]* [+\-*/]=? [a-z_][a-z0-9_]*", // binary expression
@@ -379,6 +381,13 @@ impl Section {
 
         // If the line is STILL not properly ended, it is likely to be part of a code block
         if !properly_ended {
+            ending_spaces += 72usize.saturating_sub(line.len());
+        }
+
+        // Now see if a line is properly started.
+        let properly_started = !trimmed_line.starts_with([',', '|', '*', '/', '.', '#']);
+
+        if !properly_started {
             ending_spaces += 72usize.saturating_sub(line.len());
         }
 
@@ -506,7 +515,7 @@ impl OrderedListStyle {
                 |
                 ^\((?<bracketNumber> [0-9])\)\  # match for bracketed lists: "(1) Text"
                 |
-                ^(?<none> [0-9]+?)\ {1,3}\w # match for numbered lists without a dot: "1 Text"
+                ^(?<none> [0-9]+?)\ {2,3}\w # match for numbered lists without a dot: "1 Text"
             "#,
             )
             .unwrap()
@@ -794,12 +803,13 @@ impl Element {
             } => {
                 let apparent_end = lines
                     .last()
-                    .map(|line| line.text.ends_with(':'))
+                    .map(|line| line.text.ends_with(':') || line.text.ends_with("..."))
                     .unwrap_or(false);
 
-                // If a paragraph ends in ":" we somewhat treat it as if it
-                // has already ended - look for list item markers. If there
-                // isn't any, continue the paragraph as normal.
+                // If a paragraph ends in ":" or "..." (symbols that could create a
+                // new section) we somewhat treat it as if it has already ended -
+                // Look for list item markers. If there isn't any, continue the
+                // paragraph as normal.
                 if apparent_end
                     && (UnorderedListStyle::extract_from_line(line).is_some()
                         || OrderedListStyle::extract_from_line(line).is_some())

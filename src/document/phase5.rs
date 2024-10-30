@@ -150,7 +150,7 @@ impl Section {
 pub enum Element {
     Paragraph {
         depth: u32,
-        hanging: bool,
+        indentation: Indent,
         preformatted: bool,
         elements: Vec<InnerElement>,
     },
@@ -179,7 +179,7 @@ impl Element {
     fn from_phase4(phase4: Phase4Element) -> Self {
         match phase4 {
             Phase4Element::Paragraph { depth, preformatted, lines } => {
-                let hanging = 'block: {
+                let indentation = {
                     let first_depth = lines
                         .first()
                         .map(|line| line.text.chars().take_while(|c| *c == ' ').count())
@@ -189,22 +189,30 @@ impl Element {
                         .map(|line| line.text.chars().take_while(|c| *c == ' ').count())
                         .unwrap_or(0);
 
-                    if first_depth >= next_depth {
-                        break 'block false;
-                    }
-
                     let mut same_depth = true;
-                    for line in &lines[2..] {
-                        let depth = line.text.chars().take_while(|c| *c == ' ').count();
-                        same_depth &= depth == next_depth;
+                    if lines.len() > 2 {
+                        for line in &lines[2..] {
+                            let depth = line.text.chars().take_while(|c| *c == ' ').count();
+                            same_depth &= depth == next_depth;
+                        }
                     }
 
-                    same_depth
+                    if same_depth {
+                        if first_depth > next_depth {
+                            Indent::Indented
+                        } else if first_depth == next_depth {
+                            Indent::Normal
+                        } else {
+                            Indent::Hanging
+                        }
+                    } else {
+                        Indent::Normal
+                    }
                 };
 
                 let elements = InnerElement::from_lines(preformatted, depth, lines);
 
-                Element::Paragraph { depth, hanging, preformatted, elements }
+                Element::Paragraph { depth, indentation, preformatted, elements }
             },
             Phase4Element::DefinitionList { depth, definitions } => {
                 let definitions = definitions.into_iter()
@@ -388,4 +396,11 @@ impl InnerElement {
 
         result
     }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Indent {
+    Normal,
+    Indented,
+    Hanging,
 }

@@ -1,6 +1,6 @@
 use crate::document::phase2::StartInfo;
 use crate::document::phase3::OrderedListStyle;
-use crate::document::phase5::{Element, InnerElement};
+use crate::document::phase5::{Element, Indent, InnerElement};
 use crate::document::Document;
 
 use super::Generator;
@@ -136,6 +136,9 @@ r##"
                 padding-left: 1.5rem;
                 text-indent: -1.5rem;
             }}
+            .indented {{
+                text-indent: 1.5rem;
+            }}
         </style>
     </head>
     <body>
@@ -196,7 +199,7 @@ impl Generator for Html {
             match element {
                 Element::Paragraph {
                     elements,
-                    hanging,
+                    indentation,
                     depth,
                     preformatted,
                 } => {
@@ -206,8 +209,10 @@ impl Generator for Html {
                     } else {
                         ""
                     };
-                    let class = if *hanging {
+                    let class = if *indentation == Indent::Hanging {
                         &format!("hanging {}", class)
+                    } else if *indentation == Indent::Indented {
+                        &format!("indented {}", class)
                     } else {
                         class
                     };
