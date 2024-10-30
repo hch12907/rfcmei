@@ -7,7 +7,7 @@ then decorated with CSS.
 Here is an example of [RFC 6887](https://www.rfc-editor.org/rfc/rfc6887) after
 it is prettified by the tool:
 
-<img src="./screenshot.png" alt="RFC 6887 prettified" width="70%">
+<img src="./screenshot.png" alt="RFC 6887 prettified" width="90%">
 
 Please understand that the tool is making up new markup information on a best-effort
 basis (the original RFC documents, in plain text, obviously do not contain any
