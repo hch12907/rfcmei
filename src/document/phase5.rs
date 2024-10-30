@@ -1,15 +1,19 @@
-//! Phase 5 only adds some flavour to the document.
+//! Phase 5 removes the concept of lines from the document.
 
 use std::sync::LazyLock;
 
 use regex::Regex;
 
-use crate::document::phase2::{LineMetadata, LineMetadataKind, StartInfo};
-use crate::document::phase4::Element;
+use super::phase2::{Line, LineMetadataKind, StartInfo};
+use super::phase3::{OrderedListStyle, UnorderedListStyle};
+use super::phase4::{Phase4Document, Element as Phase4Element, Section as Phase4Section};
 
-use super::phase2::Line;
-use super::phase3::OrderedListStyle;
-use super::phase4::Phase4Document;
+#[derive(Debug, Clone)]
+pub struct Phase5Document {
+    pub start_info: StartInfo,
+    pub title: Box<str>,
+    pub sections: Vec<Section>,
+}
 
 macro_rules! html_template {
     ($($key:ident = $val:ident),*) => {
@@ -127,14 +131,15 @@ r##"
     };
 }
 
-#[derive(Debug, Clone)]
-pub struct Phase5Document {
-    document: Phase4Document,
-}
-
 impl Phase5Document {
     pub fn from_phase4(phase4: Phase4Document) -> Self {
-        let mut this = Self { document: phase4 };
+        let Phase4Document { start_info, title, sections } = phase4;
+
+        let mut this = Self {
+            start_info,
+            title,
+            sections: sections.into_iter().map(Section::from_phase4).collect(),
+        };
 
         this.mark_keywords();
 
@@ -142,132 +147,56 @@ impl Phase5Document {
     }
 
     pub fn print(&self) -> String {
-        let mut result = String::with_capacity(65536);
+        let mut result = String::new();
+
+        fn print_inner_element(element: &InnerElement, output: &mut String) {
+            match element {
+                InnerElement::Break => {
+                    output.push_str("<br>");
+                },
+                InnerElement::Text(text) => {
+                    for ch in text.chars() {
+                        match ch {
+                            '&' => output.push_str("&amp;"),
+                            '<' => output.push_str("&lt;"),
+                            '>' => output.push_str("&gt;"),
+                            _ => output.push(ch),
+                        }
+                    }
+                },
+                InnerElement::Anchor(id, inner_element) => {
+                    output.push_str(&format!("<span id=\"{}\">", id));
+                    print_inner_element(&inner_element, output);
+                    output.push_str("</span>");
+                },
+                InnerElement::Reference(href, inner_element) => {
+                    output.push_str(&format!("<a href=\"{}\">", href));
+                    print_inner_element(&inner_element, output);
+                    output.push_str("</a>");
+                },
+                InnerElement::Keyword(word) => {
+                    output.push_str("<strong>");
+                    output.push_str(word);
+                    output.push_str("</strong>");
+                },
+            }
+        }
 
         fn print_element(element: &Element, output: &mut String) {
-            let print_line = |space, line: &Line, output: &mut String| {
-                output.push_str(space);
-
-                let max_column = line.text.chars().count();
-
-                for (i, ch) in line.text.chars().enumerate() {
-                    let start_meta = line.metadata.iter().find(|meta| meta.column == i as u32);
-                    let end_meta = line.metadata.iter().find(|meta| {
-                        let end = (meta.column + meta.length).min(max_column as u32 - 1);
-                        end == i as u32
-                    });
-
-                    let approaching_end = end_meta.is_some() && max_column - 1 == i;
-                    if approaching_end {
-                        match ch {
-                            '&' => output.push_str("&amp;"),
-                            '<' => output.push_str("&lt;"),
-                            '>' => output.push_str("&gt;"),
-                            _ => output.push(ch),
-                        }
-                    }
-
-                    match end_meta {
-                        Some(LineMetadata {
-                            column: _,
-                            length: _,
-                            kind: LineMetadataKind::Keyword,
-                        }) => output.push_str("</strong>"),
-
-                        Some(LineMetadata {
-                            column: _,
-                            length: _,
-                            kind: LineMetadataKind::Anchor(_),
-                        }) => output.push_str("</span>"),
-
-                        Some(LineMetadata {
-                            column: _,
-                            length: _,
-                            kind: LineMetadataKind::Reference(_),
-                        }) => output.push_str("</a>"),
-
-                        None => (),
-                    };
-
-                    match start_meta {
-                        Some(LineMetadata {
-                            column: _,
-                            length: _,
-                            kind: LineMetadataKind::Keyword,
-                        }) => {
-                            output.push_str("<strong>");
-                        }
-
-                        Some(LineMetadata {
-                            column: _,
-                            length: _,
-                            kind: LineMetadataKind::Anchor(id),
-                        }) => {
-                            output.push_str(&format!("<span id=\"{}\">", id));
-                        }
-
-                        Some(LineMetadata {
-                            column: _,
-                            length: _,
-                            kind: LineMetadataKind::Reference(r),
-                        }) => {
-                            output.push_str(&format!("<a href=\"{}\">", r));
-                        }
-
-                        None => (),
-                    };
-
-                    if !approaching_end {
-                        match ch {
-                            '&' => output.push_str("&amp;"),
-                            '<' => output.push_str("&lt;"),
-                            '>' => output.push_str("&gt;"),
-                            _ => output.push(ch),
-                        }
-                    }
-                }
-
-                if let Some(connector) = line.connector {
-                    output.push(connector);
-                }
-            };
-
             match element {
                 Element::Paragraph {
-                    lines,
+                    elements,
+                    hanging,
                     depth,
                     preformatted,
                 } => {
-                    let is_hanging = 'block: {
-                        let first_depth = lines
-                            .first()
-                            .map(|line| line.text.chars().take_while(|c| *c == ' ').count())
-                            .unwrap_or(0);
-                        let next_depth = lines
-                            .get(1)
-                            .map(|line| line.text.chars().take_while(|c| *c == ' ').count())
-                            .unwrap_or(0);
-
-                        if first_depth >= next_depth {
-                            break 'block false;
-                        }
-
-                        let mut same_depth = true;
-                        for line in &lines[2..] {
-                            let depth = line.text.chars().take_while(|c| *c == ' ').count();
-                            same_depth &= depth == next_depth;
-                        }
-
-                        same_depth
-                    };
-
                     let depth_class = depth.saturating_sub(3) / 3;
                     let class = if depth_class > 0 {
                         &format!("indent-{}", depth_class)
                     } else {
                         ""
                     };
-                    let class = if is_hanging {
+                    let class = if *hanging {
                         &format!("hanging {}", class)
                     } else {
                         class
@@ -283,24 +212,8 @@ impl Phase5Document {
                         }
                     }
 
-                    let space = if *preformatted {
-                        &" ".repeat(*depth as usize)
-                    } else {
-                        ""
-                    };
-
-                    for (i, line) in lines.iter().enumerate() {
-                        print_line(space, line, output);
-
-                        if !*preformatted && let Some(next_line) = lines.get(i + 1) {
-                            let depth_now = line.text.chars().take_while(|c| *c == ' ').count();
-                            let depth_next =
-                                next_line.text.chars().take_while(|c| *c == ' ').count();
-
-                            if depth_now != depth_next {
-                                output.push_str("<br>");
-                            }
-                        }
+                    for element in elements {
+                        print_inner_element(element, output);
                     }
 
                     if *preformatted {
@@ -310,12 +223,31 @@ impl Phase5Document {
                     }
                 }
 
-                Element::OrderedList {
-                    depth,
-                    items,
-                    style,
-                    ..
-                } => {
+                Element::DefinitionList { depth, definitions } => {
+                    let depth_class = depth.saturating_sub(3) / 3;
+                    let class = if depth_class > 0 {
+                        &format!("class=\"indent-{}\"", depth_class)
+                    } else {
+                        ""
+                    };
+
+                    output.push_str(&format!("<dl {}>", class));
+                    for (term, definition) in definitions {
+                        output.push_str("<dt>");
+                        for element in term {
+                            print_inner_element(element, output);
+                        }
+                        output.push_str("</dt>");
+                        output.push_str("<dd>");
+                        for element in definition {
+                            print_inner_element(element, output);
+                        }
+                        output.push_str("</dd>\n");
+                    }
+                    output.push_str("</dl>\n");
+                },
+
+                Element::OrderedList { depth, style, items } => {
                     let depth_class = depth.saturating_sub(3) / 3;
                     let class = if depth_class > 0 {
                         &format!("class=\"indent-{}\"", depth_class)
@@ -349,7 +281,7 @@ impl Phase5Document {
                     }
                     output.push_str("</li>");
                     output.push_str("</ol>\n");
-                }
+                },
 
                 Element::UnorderedList { depth, items, .. } => {
                     let depth_class = depth.saturating_sub(3) / 3;
@@ -372,29 +304,7 @@ impl Phase5Document {
                     output.push_str("</li>");
                     output.push_str("</ul>\n");
                 }
-                Element::DefinitionList {
-                    depth, definitions, ..
-                } => {
-                    let depth_class = depth.saturating_sub(3) / 3;
-                    let class = if depth_class > 0 {
-                        &format!("class=\"indent-{}\"", depth_class)
-                    } else {
-                        ""
-                    };
 
-                    output.push_str(&format!("<dl {}>", class));
-                    for (term, definition) in definitions {
-                        output.push_str("<dt>");
-                        print_line("", term, output);
-                        output.push_str("</dt>");
-                        output.push_str("<dd>");
-                        for line in definition {
-                            print_line("", line, output);
-                        }
-                        output.push_str("</dd>\n");
-                    }
-                    output.push_str("</dl>\n");
-                }
                 Element::Table {
                     depth: _,
                     headings,
@@ -402,7 +312,11 @@ impl Phase5Document {
                 } => {
                     output.push_str("<table>");
                     for heading in headings {
-                        output.push_str(&format!("<th>{}</th>\n", heading));
+                        output.push_str("<th>");
+                        for element in heading {
+                            print_inner_element(element, output);
+                        }
+                        output.push_str("</th>");
                     }
                     for row in cells {
                         output.push_str("<tr>");
@@ -427,7 +341,7 @@ impl Phase5Document {
             category,
             others,
             authors,
-        } = &self.document.start_info;
+        } = &self.start_info;
         result.push_str("<dl class=\"start-info\">");
         result.push_str(&format!("<dt>Stream:</dt><dd>{}</dd>", stream));
         result.push_str(&format!("<dt>RFC:</dt><dd>{}</dd>", rfc));
@@ -460,9 +374,9 @@ impl Phase5Document {
         }
         result.push_str("</dd></dl>");
 
-        result.push_str(&format!("<h1>{}</h1>", &self.document.title));
+        result.push_str(&format!("<h1>{}</h1>", &self.title));
 
-        for section in &self.document.sections {
+        for section in &self.sections {
             if section
                 .title
                 .to_ascii_lowercase()
@@ -482,76 +396,363 @@ impl Phase5Document {
             }
         }
 
-        let rfc = &self.document.start_info.rfc;
-        let title = &self.document.title;
+        let rfc = &self.start_info.rfc;
+        let title = &self.title;
         html_template!(body = result, title = title, rfc = rfc)
     }
 
     fn mark_keywords(&mut self) {
         static KEYWORDS_REGEX: LazyLock<Regex> = LazyLock::new(|| {
             Regex::new(
-                r"\b(MUST NOT|MUST|REQUIRED|SHALL NOT|SHALL|SHOULD NOT|SHOULD|NOT RECOMMENDED|RECOMMENDED|MAY|OPTIONAL)\b"
+                r"^(MUST NOT|MUST|REQUIRED|SHALL NOT|SHALL|SHOULD NOT|SHOULD|NOT RECOMMENDED|RECOMMENDED|MAY|OPTIONAL)\b"
             ).unwrap()
         });
 
+        fn mark_keywords_in_inner_elements(elements: &mut Vec<InnerElement>) {
+            let mut i = 0;
+            while i < elements.len() {
+                let mut buffer = Vec::new();
+                let mut current = String::new();
+
+                match &elements[i] {
+                    InnerElement::Text(text) => {
+                        let mut chars = text.chars();
+                        
+                        while !chars.as_str().is_empty() {
+                            if let Some(found) = KEYWORDS_REGEX.find(chars.as_str()) {
+                                let keyword = InnerElement::Keyword(found.as_str().to_owned());
+                                chars.nth(found.len() - 1).unwrap();
+
+                                if !current.is_empty() {
+                                    let text = InnerElement::Text(std::mem::take(&mut current));
+                                    buffer.push(text);
+                                }
+
+                                buffer.push(keyword);
+                            } else if let Some(c) = chars.next() {
+                                current.push(c);
+                            }
+                        }
+
+                        if !current.is_empty() {
+                            let text = InnerElement::Text(
+                                std::mem::take(&mut current)
+                            );
+                            buffer.push(text);
+                        }
+                    },
+                    InnerElement::Anchor(_, _) => (),
+                    InnerElement::Reference(_, _) => (),
+                    InnerElement::Keyword(_) => (),
+                    InnerElement::Break => (),
+                }
+
+                if !buffer.is_empty() {
+                    let elements_after = elements.split_off(i);
+                    elements.extend_from_slice(&buffer);
+                    elements.extend_from_slice(&elements_after[1..]);
+                }
+
+                i += 1;
+            }
+        }
+
         fn mark_keywords_in_element(element: &mut Element) {
             match element {
-                Element::Paragraph {
-                    preformatted,
-                    lines,
-                    ..
-                } => {
+                Element::Paragraph { preformatted, elements, .. } => {
                     if *preformatted {
                         return;
                     }
-
-                    for line in lines {
-                        for keyword in KEYWORDS_REGEX.find_iter(&line.text) {
-                            line.metadata.push(LineMetadata {
-                                column: keyword.start() as u32,
-                                length: keyword.len() as u32,
-                                kind: LineMetadataKind::Keyword,
-                            });
-
-                            line.metadata
-                                .sort_by(|meta1, meta2| meta1.column.cmp(&meta2.column));
-                        }
-                    }
-                }
+                    mark_keywords_in_inner_elements(elements);
+                },
                 Element::DefinitionList { definitions, .. } => {
-                    for def in definitions {
-                        for line in &mut def.1 {
-                            for keyword in KEYWORDS_REGEX.find_iter(&line.text) {
-                                line.metadata.push(LineMetadata {
-                                    column: keyword.start() as u32,
-                                    length: keyword.len() as u32,
-                                    kind: LineMetadataKind::Keyword,
-                                });
-                            }
-
-                            line.metadata
-                                .sort_by(|meta1, meta2| meta1.column.cmp(&meta2.column));
-                        }
+                    for (_term, def) in definitions {
+                        mark_keywords_in_inner_elements(def);
                     }
-                }
+                },
                 Element::OrderedList { items, .. } => {
                     for item in items {
                         mark_keywords_in_element(&mut item.1);
                     }
-                }
+                },
                 Element::UnorderedList { items, .. } => {
                     for item in items {
                         mark_keywords_in_element(&mut item.1);
                     }
                 }
-                Element::Table { cells: _, .. } => todo!(),
+                Element::Table { depth: _, headings: _, cells: _ } => todo!(),
             }
         }
 
-        for section in &mut self.document.sections {
+        for section in &mut self.sections {
             for element in &mut section.elements {
                 mark_keywords_in_element(element);
             }
         }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct Section {
+    pub id: Option<Box<str>>, // An optional fragment-identifier for the section.
+    pub level: usize,         // Level of the section, starts from 0 as the outermost level
+    pub title: Box<str>,
+    pub elements: Vec<Element>,
+}
+
+impl Section {
+    pub fn from_phase4(phase4: Phase4Section) -> Self {
+        let Phase4Section { id, level, title, elements } = phase4;
+
+        Self {
+            id,
+            level,
+            title,
+            elements: elements.into_iter().map(Element::from_phase4).collect()
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub enum Element {
+    Paragraph {
+        depth: u32,
+        hanging: bool,
+        preformatted: bool,
+        elements: Vec<InnerElement>,
+    },
+    DefinitionList {
+        depth: u32,
+        definitions: Vec<(Vec<InnerElement>, Vec<InnerElement>)>,
+    },
+    OrderedList {
+        depth: u32,
+        style: OrderedListStyle,
+        items: Vec<(Option<u32>, Self)>,
+    },
+    UnorderedList {
+        depth: u32,
+        style: UnorderedListStyle,
+        items: Vec<(bool, Self)>,
+    },
+    Table {
+        depth: u32,
+        headings: Vec<Vec<InnerElement>>,
+        cells: Vec<Vec<Self>>,
+    },
+}
+
+impl Element {
+    fn from_phase4(phase4: Phase4Element) -> Self {
+        match phase4 {
+            Phase4Element::Paragraph { depth, preformatted, lines } => {
+                let hanging = 'block: {
+                    let first_depth = lines
+                        .first()
+                        .map(|line| line.text.chars().take_while(|c| *c == ' ').count())
+                        .unwrap_or(0);
+                    let next_depth = lines
+                        .get(1)
+                        .map(|line| line.text.chars().take_while(|c| *c == ' ').count())
+                        .unwrap_or(0);
+
+                    if first_depth >= next_depth {
+                        break 'block false;
+                    }
+
+                    let mut same_depth = true;
+                    for line in &lines[2..] {
+                        let depth = line.text.chars().take_while(|c| *c == ' ').count();
+                        same_depth &= depth == next_depth;
+                    }
+
+                    same_depth
+                };
+
+                let elements = InnerElement::from_lines(preformatted, depth, lines);
+
+                Element::Paragraph { depth, hanging, preformatted, elements }
+            },
+            Phase4Element::DefinitionList { depth, definitions } => {
+                let definitions = definitions.into_iter()
+                    .map(|(term, def)| {
+                        let term = InnerElement::from_line(&term);
+                        let def = InnerElement::from_lines(false, 0, def);
+                        (term, def)
+                    })
+                    .collect();
+                Element::DefinitionList { depth, definitions }
+            },
+            Phase4Element::OrderedList { depth, style, items } => {
+                let items = items.into_iter().map(|item| {
+                    (item.0, Self::from_phase4(item.1))
+                }).collect();
+                
+                Element::OrderedList {
+                    depth,
+                    style,
+                    items
+                }
+            },
+            Phase4Element::UnorderedList { depth, style, items } => {
+                let items = items.into_iter().map(|item| {
+                    (item.0, Self::from_phase4(item.1))
+                }).collect();
+                
+                Element::UnorderedList {
+                    depth,
+                    style,
+                    items
+                }
+            },
+            Phase4Element::Table { depth, headings, cells } => {
+                let headings = headings
+                    .iter()
+                    .map(InnerElement::from_line)
+                    .collect();
+                let cells = cells
+                    .into_iter()
+                    .map(|row| row
+                        .into_iter()
+                        .map(Self::from_phase4)
+                        .collect())
+                    .collect();
+                Element::Table { depth, headings, cells }
+            },
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub enum InnerElement {
+    Break,
+    Text(String),
+    Anchor(String, Box<Self>),
+    Reference(String, Box<Self>),
+    Keyword(String),
+}
+
+impl InnerElement {
+    fn from_lines(preformatted: bool, depth: u32, lines: Vec<Line>) -> Vec<Self> {
+        let mut result = Vec::new();
+
+        for (i, line) in lines.iter().enumerate() {
+            let mut this_line = Self::from_line(line);
+
+            if preformatted {
+                let spaces = " ".repeat(depth as usize);
+                if let Some(InnerElement::Text(first)) = this_line.first_mut() {
+                    *first = spaces + first;
+                } else {
+                    this_line.insert(0, InnerElement::Text(spaces))
+                }
+            }
+
+            if let Some(InnerElement::Text(last)) = result.last_mut()
+                && let Some(InnerElement::Text(this)) = this_line.first()
+            {
+                last.push_str(this);
+                result.extend_from_slice(&this_line[1..]);
+            } else {
+                result.extend_from_slice(&this_line);
+            }
+
+            if !preformatted && let Some(next_line) = lines.get(i + 1) {
+                let depth_now = line.text.chars().take_while(|c| *c == ' ').count();
+                let depth_next =
+                    next_line.text.chars().take_while(|c| *c == ' ').count();
+
+                if depth_now != depth_next {
+                    result.push(InnerElement::Break);
+                }
+            }
+        }
+
+        result
+    }
+
+    fn from_line(line: &Line) -> Vec<Self> {
+        Self::from_line_inner(line, 0, line.text.len() as u32, None)
+    }
+
+    fn from_line_inner(
+        line: &Line,
+        start: u32,
+        len: u32,
+        ignore: Option<usize>
+    ) -> Vec<Self> {
+        let mut iter = line.text
+            .as_bytes()
+            .iter()
+            .enumerate()
+            .skip(start as usize)
+            .take(len as usize);
+
+        let mut result = Vec::new();
+        let mut current = Vec::<u8>::new();
+
+        while let Some((i, c)) = iter.next() {
+            let metadata_idx = line.metadata.iter().position(|meta| meta.column as usize == i);
+
+            let metadata = if metadata_idx != ignore {
+                metadata_idx.map(|i| &line.metadata[i])
+            } else {
+                None
+            };
+
+            if let Some(metadata) = metadata {
+                if !current.is_empty() {
+                    let text = String::from_utf8(std::mem::take(&mut current)).unwrap();
+                    result.push(Self::Text(text));
+                }
+
+                match &metadata.kind {
+                    LineMetadataKind::Reference(r) => {
+                        let mut inner = Self::from_line_inner(line, metadata.column, metadata.length, metadata_idx);
+                        assert!(inner.len() == 1);
+
+                        if metadata.length > 1 {
+                            iter.nth((metadata.length - 2) as usize);
+                        }
+
+                        result.push(Self::Reference(
+                            r.clone().into(),
+                            Box::new(inner.pop().unwrap()))
+                        )
+                    },
+                    LineMetadataKind::Anchor(a) => {
+                        let mut inner = Self::from_line_inner(line, metadata.column, metadata.length, metadata_idx);
+                        assert!(inner.len() == 1);
+
+                        if metadata.length > 1 {
+                            iter.nth((metadata.length - 2) as usize);
+                        }
+
+                        result.push(Self::Anchor(
+                            a.clone().into(),
+                            Box::new(inner.pop().unwrap()))
+                        )
+                    },
+                    LineMetadataKind::Keyword => todo!(),
+                }
+            } else {
+                current.push(*c);
+            }
+        }
+
+        if (start + len) as usize == line.text.len() 
+            && let Some(connector) = line.connector
+        {
+            let mut utf8 = [0u8; 4];
+            connector.encode_utf8(&mut utf8);
+            current.extend_from_slice(&utf8[..connector.len_utf8()]);
+        }
+        
+        if !current.is_empty() {
+            let text = String::from_utf8(std::mem::take(&mut current)).unwrap();
+            result.push(Self::Text(text));
+        }
+
+        result
     }
 }

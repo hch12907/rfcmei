@@ -52,7 +52,7 @@ pub enum Element {
     },
     Table {
         depth: u32,
-        headings: Vec<String>,
+        headings: Vec<Line>,
         cells: Vec<Vec<Self>>,
     },
 }
@@ -258,7 +258,7 @@ impl Phase4Document {
                 } => {
                     output.push_str("<table>");
                     for heading in headings {
-                        output.push_str(&format!("<th>{}</th>\n", heading));
+                        output.push_str(&format!("<th>{}</th>\n", &heading.text));
                     }
                     for row in cells {
                         output.push_str("<tr>");
