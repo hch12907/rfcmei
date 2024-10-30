@@ -398,7 +398,7 @@ impl Generator for Html {
             }
             result.push_str(&format!(
                 "<h{0} id=\"{2}\">{1}</h{0}>\n",
-                section.level.max(1) + 1,
+                section.level + 2,
                 section.title,
                 section.id.as_deref().unwrap_or("").trim_start_matches('#'),
             ));
