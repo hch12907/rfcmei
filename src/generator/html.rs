@@ -419,24 +419,25 @@ impl Generator for Html {
         let mut toc_html = String::new();
         toc_html.push_str("<ol class=\"table-of-contents\">");
 
-        let mut current_level = 0;
         for (i, &(title, level, id)) in table_of_contents.iter().enumerate() {
-            if level > current_level {
-                assert!(level - current_level == 1);
-                toc_html.push_str("<ol><li>");
-            } else if level == current_level {
-                if i > 0 {
-                    toc_html.push_str("</li>");
-                }
-                toc_html.push_str("<li>");
-            } else if level < current_level {
-                for _ in 0..current_level - level {
+            let next_level = table_of_contents
+                .get(i + 1)
+                .map(|&(_, level, _)| level)
+                .unwrap_or(0);
+
+            toc_html.push_str(&format!("<li><a href=\"#{}\">{}</a>", id, title));
+
+            if next_level > level {
+                assert!(next_level - level == 1);
+                toc_html.push_str("<ol>");
+            } else if next_level == level {
+                toc_html.push_str("</li>");
+            } else if next_level < level {
+                for _ in 0..level - next_level {
                     toc_html.push_str("</li></ol>");
                 }
+                toc_html.push_str("</li>");
             }
-
-            current_level = level;
-            toc_html.push_str(&format!("<a href=\"#{}\">{}</a>", id, title));
         }
     
         toc_html.push_str("</ol>");
