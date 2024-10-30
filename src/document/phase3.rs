@@ -2,6 +2,7 @@
 //! to whether be paragraphs, lists (ordered or unordered), or preformatted sections.
 //! Phase 3 will produce a tree that Phase 4 consumes.
 
+use std::fmt::format;
 use std::sync::LazyLock;
 
 use regex::{Regex, RegexSet};
@@ -36,119 +37,7 @@ impl Phase3Document {
     }
 
     pub fn print(&self) -> String {
-        let mut result = String::with_capacity(65536);
-
-        fn print_element(element: &Element, output: &mut String) {
-            match element {
-                Element::Paragraph {
-                    depth,
-                    preformatted,
-                    lines,
-                    ..
-                } => {
-                    if *preformatted {
-                        output.push_str("<pre>");
-                    } else {
-                        output.push_str("<p>");
-                    }
-
-                    let space = if *preformatted {
-                        &" ".repeat(*depth as usize)
-                    } else {
-                        ""
-                    };
-
-                    for line in lines {
-                        output.push_str(space);
-                        output.push_str(&line.text);
-                        if let Some(connector) = line.connector {
-                            output.push(connector);
-                        }
-                    }
-
-                    if *preformatted {
-                        output.push_str("</pre>");
-                    } else {
-                        output.push_str("</p>");
-                    }
-                }
-                Element::OrderedList {
-                    depth: _,
-                    style,
-                    items,
-                } => {
-                    output.push_str(&format!(
-                        "<ol type=\"{}\" start=\"{}\">",
-                        match style {
-                            OrderedListStyle::DottedLetterLower
-                            | OrderedListStyle::BracketedLetterLower => "a",
-                            OrderedListStyle::DottedLetterUpper
-                            | OrderedListStyle::BracketedLetterUpper => "A",
-                            OrderedListStyle::DottedNumber
-                            | OrderedListStyle::BracketedNumber
-                            | OrderedListStyle::UndottedNumber => "1",
-                            OrderedListStyle::BracketedRoman => "i",
-                        },
-                        items[0].0.unwrap()
-                    ));
-
-                    output.push_str("<li>");
-                    print_element(&items[0].1, output);
-                    for (marker, item) in &items[1..] {
-                        if marker.is_some() {
-                            output.push_str("</li>");
-                            output.push_str("<li>");
-                        }
-                        print_element(item, output);
-                    }
-                    output.push_str("</li>");
-                    output.push_str("</ol>");
-                }
-                Element::UnorderedList {
-                    depth: _,
-                    style: _,
-                    items,
-                } => {
-                    output.push_str("<ul>");
-                    output.push_str("<li>");
-                    print_element(&items[0].1, output);
-                    for (marker, item) in &items[1..] {
-                        if *marker {
-                            output.push_str("</li>");
-                            output.push_str("<li>");
-                        }
-                        print_element(item, output);
-                    }
-                    output.push_str("</li>");
-                    output.push_str("</ul>");
-                }
-            }
-        }
-
-        result.push_str(&format!("<h1>{}</h1>", &self.title));
-
-        for section in &self.sections {
-            if section
-                .title
-                .to_ascii_lowercase()
-                .contains("table of contents")
-            {
-                continue;
-            }
-
-            result.push_str(&format!(
-                "<h{0} id=\"{2}\">{1}</h{0}>\n",
-                section.level.max(1) + 1,
-                section.title,
-                section.id.as_deref().unwrap_or(""),
-            ));
-
-            for element in &section.elements {
-                print_element(element, &mut result);
-            }
-        }
-
-        result
+        format!("{:#?}", self)
     }
 }
 

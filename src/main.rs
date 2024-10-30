@@ -1,6 +1,7 @@
 #![feature(let_chains)]
 
 mod document;
+mod generator;
 mod tree;
 
 use std::fs::File;
@@ -13,6 +14,7 @@ use document::phase2::Phase2Document;
 use document::phase3::Phase3Document;
 use document::phase4::Phase4Document;
 use document::Document;
+use generator::{Generator, Html};
 use html5gum::Tokenizer;
 use tree::Tree;
 
@@ -49,7 +51,7 @@ fn main() -> Result<(), String> {
     // println!("{}", phase4.print());
 
     let phase5 = Document::from_phase4(phase4);
-    println!("{}", phase5.print());
+    println!("{}", Html.generate(&phase5));
 
     Ok(())
 }
