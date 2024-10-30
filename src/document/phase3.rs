@@ -579,7 +579,7 @@ pub enum OrderedListStyle {
 impl OrderedListStyle {
     /// How many spaces does the marker (not including the numbering/lettering)
     /// require
-    fn occupied_space(&self) -> u32 {
+    pub fn occupied_space(&self) -> u32 {
         match self {
             OrderedListStyle::DottedLetterUpper => 1,
             OrderedListStyle::DottedLetterLower => 1,

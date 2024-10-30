@@ -138,6 +138,7 @@ impl Phase4Document {
         this.fixup_broken_references();
         this.fixup_broken_table();
         this.combine_paragraphs();
+        this.combine_paragraphs_in_lists();
         this.find_double_column_deflist();
 
         Ok(this)
@@ -300,7 +301,7 @@ impl Phase4Document {
 
     fn combine_paragraphs(&mut self) {
         // This only handles the very basic paragraph-paragraph combination.
-        // TODO: Add support for elements inside (un)ordered lists
+        // TODO: Deduplicate this and combine_paragraphs_in_lists().
         for section in &mut self.sections {
             let mut i = 0;
             while i < section.elements.len().saturating_sub(1) {
@@ -354,11 +355,15 @@ impl Phase4Document {
                         return true;
                     }
 
-                    let first_word = if first_word.ends_with([',', '.', ';', ')', ']']) {
-                        &first_word[..first_word.len() - 1]
-                    } else {
-                        first_word
-                    };
+                    let mut first_word = first_word;
+
+                    for _ in 0..2 {
+                        first_word = if first_word.ends_with([',', '.', ';', ')', ']']) {
+                            &first_word[..first_word.len() - 1]
+                        } else {
+                            first_word
+                        };
+                    }
 
                     // Use bytes and leave non-ASCII paragraphs alone.
                     first_word
@@ -393,6 +398,158 @@ impl Phase4Document {
                         .iter()
                         .map(|line| line.pad(true_depth_this - depth_this)),
                 );
+            }
+        }
+    }
+
+    fn combine_paragraphs_in_lists(&mut self) {
+        fn combine_paragraphs_in_lists_inner<T, F, Fm, Fr>(
+            elements: &mut Vec<T>,
+            list_depth: u32,
+            style_depth: u32,
+            get: F,
+            get_mut: Fm,
+            get_ref: Fr,
+        ) 
+            where F:  Fn(T) -> (bool, Element),
+                  Fm: Fn(&mut T) -> (bool, &mut Element),
+                  Fr: Fn(&T) -> (bool, &Element),
+        {
+            let mut i = 0;
+            while i < elements.len().saturating_sub(1) {
+                let (styled, Element::Paragraph {
+                    depth: depth_this,
+                    preformatted: false,
+                    lines: lines_this,
+                }) = get_ref(&elements[i])
+                else {
+                    if let Element::OrderedList { depth, style, items } = get_mut(&mut elements[i]).1 {
+                        combine_paragraphs_in_ordered_list(items, *depth, style.clone());
+                    } else if let Element::UnorderedList { depth, items, .. } = get_mut(&mut elements[i]).1 {
+                        combine_paragraphs_in_unordered_list(items, *depth);
+                    }
+
+                    i += 1;
+                    continue;
+                };
+                let depth_this = *depth_this;
+
+                let (false, Element::Paragraph {
+                    depth: depth_next,
+                    preformatted: false,
+                    lines: lines_next,
+                }) = get_ref(&elements[i + 1])
+                else {
+                    i += 1;
+                    continue;
+                };
+
+                let true_depth_this = depth_this + list_depth + if styled {
+                    style_depth
+                } else {
+                    0
+                };
+
+                if true_depth_this != *depth_next {
+                    i += 1;
+                    continue;
+                }
+
+                let Some(ends_improperly) = lines_this.last().map(|line| {
+                    let last_word = line.text.rsplit(' ').next().unwrap_or("^");
+                    last_word
+                        .bytes()
+                        .all(|c| c.is_ascii_alphanumeric() || c == b'-')
+                        || last_word.ends_with(",")
+                }) else {
+                    i += 1;
+                    continue;
+                };
+
+                let Some(starts_improperly) = lines_next.first().map(|line| {
+                    let first_word = line.text.split(' ').next().unwrap_or("^");
+
+                    if first_word.starts_with(['(']) {
+                        return true;
+                    }
+
+                    let mut first_word = first_word;
+
+                    for _ in 0..2 {
+                        first_word = if first_word.ends_with([',', '.', ';', ')', ']']) {
+                            &first_word[..first_word.len() - 1]
+                        } else {
+                            first_word
+                        };
+                    }
+
+                    // Use bytes and leave non-ASCII paragraphs alone.
+                    first_word
+                        .bytes()
+                        .all(|c| c.is_ascii_lowercase() || c == b'-')
+                }) else {
+                    i += 1;
+                    continue;
+                };
+
+                if !(ends_improperly && starts_improperly) {
+                    i += 1;
+                    continue;
+                }
+
+                let (false, Element::Paragraph {
+                    lines: lines_next, ..
+                }) = get(elements.remove(i + 1))
+                else {
+                    unreachable!();
+                };
+
+                let (_, Element::Paragraph {
+                    lines: lines_this, ..
+                }) = get_mut(&mut elements[i])
+                else {
+                    unreachable!()
+                };
+
+                lines_this.extend_from_slice(&lines_next);
+            }
+        }
+
+        // The functions are separatedly defined (instead of being inlined) to avoid
+        // a type recursion error.
+        fn combine_paragraphs_in_unordered_list(items: &mut Vec<(bool, Element)>, depth: u32) {
+            combine_paragraphs_in_lists_inner(
+                items,
+                depth,
+                1,
+                |item| (item.0, item.1),
+                |item| (item.0, &mut item.1),
+                |item| (item.0, &item.1),
+            );
+        }
+
+        fn combine_paragraphs_in_ordered_list(items: &mut Vec<(Option<u32>, Element)>, depth: u32, style: OrderedListStyle) {
+            combine_paragraphs_in_lists_inner(
+                items,
+                depth,
+                style.occupied_space() + 1,
+                |item| (item.0.is_some(), item.1),
+                |item| (item.0.is_some(), &mut item.1),
+                |item| (item.0.is_some(), &item.1),
+            );
+        }
+
+        for section in &mut self.sections {
+            for element in &mut section.elements {
+                match element {
+                    Element::OrderedList { items, depth, style } => {
+                        combine_paragraphs_in_ordered_list(items, *depth, style.clone());
+                    },
+                    Element::UnorderedList { items, depth, .. } => {
+                        combine_paragraphs_in_unordered_list(items, *depth);
+                    },
+                    _ => continue,
+                }
             }
         }
     }
