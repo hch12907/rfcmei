@@ -14,17 +14,42 @@ r##"
 <!DOCTYPE html>
 <html>
     <head>
-        <title>{rfc} - {title} [Prettified]</title>
+        <title>RFC {rfc} - {title} [Prettified]</title>
         <meta name="viewport" content="width=device-width, initial-scale=1" />
         <meta charset="UTF-8" />
         <style>
             body {{
+                display: flex;
                 font-family: Helvetica, Roboto, Arial, sans-serif;
                 line-height: 1.6em;
                 background-color: #fbfbf9;
-                max-width: 700px;
-                margin: auto;
                 padding: 0.8em;
+                flex-direction: row-reverse;
+                justify-content: flex-end;
+                max-width: 80%;
+                margin: auto;
+            }}
+            article {{
+                flex-grow: 2;
+                width: 70%;
+                overflow-y: auto;
+                margin: 1em 2em 1em 0em;
+            }}
+            aside {{
+                display: block;
+                position: sticky;
+                overflow-y: auto;
+                align-self: flex-start;
+                z-index: 1;
+                background-color: #fbfbf9;
+                opacity: 92%;
+                padding: 1em;
+                width: 30%;
+                height: 100vh;
+                top: 0;
+            }}
+            .table-of-contents li::marker {{
+                content: "";
             }}
             h1 {{
                 text-align: center;
@@ -114,6 +139,9 @@ r##"
         </style>
     </head>
     <body>
+        <aside>
+{toc}
+        </aside>
         <article>
 {body}
         </article>
@@ -358,6 +386,8 @@ impl Generator for Html {
 
         result.push_str(&format!("<h1>{}</h1>", document.title));
 
+        let mut table_of_contents = Vec::new();
+
         for section in &document.sections {
             if section
                 .title
@@ -373,14 +403,47 @@ impl Generator for Html {
                 section.id.as_deref().unwrap_or("").trim_start_matches('#'),
             ));
 
+            if section.id.is_some() {
+                table_of_contents.push((
+                    section.title.as_ref(), 
+                    section.level,
+                    section.id.as_deref().unwrap_or("").trim_start_matches('#')
+                ));
+            }
+
             for element in &section.elements {
                 print_element(element, &mut result);
             }
         }
 
+        let mut toc_html = String::new();
+        toc_html.push_str("<ol class=\"table-of-contents\">");
+
+        let mut current_level = 0;
+        for (i, &(title, level, id)) in table_of_contents.iter().enumerate() {
+            if level > current_level {
+                assert!(level - current_level == 1);
+                toc_html.push_str("<ol><li>");
+            } else if level == current_level {
+                if i > 0 {
+                    toc_html.push_str("</li>");
+                }
+                toc_html.push_str("<li>");
+            } else if level < current_level {
+                for _ in 0..current_level - level {
+                    toc_html.push_str("</li></ol>");
+                }
+            }
+
+            current_level = level;
+            toc_html.push_str(&format!("<a href=\"#{}\">{}</a>", id, title));
+        }
+    
+        toc_html.push_str("</ol>");
+
         let rfc = document.start_info.rfc;
         let title = &document.title;
 
-        html_template!(body = result, title = title, rfc = rfc)
+        html_template!(toc = toc_html, body = result, title = title, rfc = rfc)
     }
 }
