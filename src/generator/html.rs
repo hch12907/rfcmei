@@ -48,7 +48,20 @@ r##"
                 height: 100vh;
                 top: 0;
             }}
-            .table-of-contents li::marker {{
+            ol.table-of-contents,
+            .table-of-contents ol {{
+                counter-reset: item;
+            }}
+            .table-of-contents li {{
+                display: block;
+                margin: 0.2em 0 0.2em -1em;
+            }}
+            .table-of-contents li:before {{
+                content: counters(item, ".")". ";
+                counter-increment: item;
+            }}
+            .table-of-contents li.toc-appendix:before,
+            .table-of-contents .toc-appendix li:before {{
                 content: "";
             }}
             h1 {{
@@ -434,7 +447,21 @@ impl Generator for Html {
                 .map(|&(_, level, _)| level)
                 .unwrap_or(0);
 
-            toc_html.push_str(&format!("<li><a href=\"#{}\">{}</a>", id, title));
+            let is_appendix = title.contains("Appendix");
+            let title = if let Some(split) = title.split_once(".  ")
+                && !is_appendix
+            {
+                split.1
+            } else {
+                title
+            };
+
+            toc_html.push_str(&format!(
+                "<li {}><a href=\"#{}\">{}</a>",
+                if is_appendix { "class=\"toc-appendix\"" } else { "" },
+                id,
+                title
+            ));
 
             if next_level > level {
                 assert!(next_level - level == 1);
