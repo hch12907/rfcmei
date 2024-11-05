@@ -21,6 +21,14 @@ use tree::Tree;
 #[derive(FromArgs)]
 /// A tool to prettify RFC documents.
 struct Args {
+    /// print the output of specified phase
+    #[argh(option, short='p')]
+    phase: Option<u32>,
+
+    /// the generator used to produce the final output
+    #[argh(option, short='g', default=r#"String::from("html")"#)]
+    generator: String,
+
     /// path to the RFC file (in HTML)
     #[argh(positional)]
     path: PathBuf,
@@ -38,20 +46,43 @@ fn main() -> Result<(), String> {
     let dom = Tree::from_tokens(Tokenizer::new(&rfc_xhtml).infallible()).unwrap();
 
     let document = Phase1Document::from_html(dom)?;
-    // println!("{}", document.print());
+    if args.phase == Some(1) {
+        println!("{}", document.print());
+        return Ok(());
+    }
 
     let phase2 = Phase2Document::from_phase1(document)?;
-    // println!("{:#?}", phase2);
-    // println!("{}", phase2.print());
+    if args.phase == Some(2) {
+        println!("{}", phase2.print());
+        return Ok(());
+    }
 
     let phase3 = Phase3Document::from_phase2(phase2)?;
-    // println!("{}", phase3.print());
+    if args.phase == Some(3) {
+        println!("{}", phase3.print());
+        return Ok(());
+    }
 
     let phase4 = Phase4Document::from_phase3(phase3)?;
-    // println!("{}", phase4.print());
+    if args.phase == Some(4) {
+        println!("{}", phase4.print());
+        return Ok(());
+    }
 
     let phase5 = Document::from_phase4(phase4);
-    println!("{}", Html.generate(&phase5));
+    if args.phase == Some(5) {
+        println!("{}", phase5.print());
+        return Ok(());
+    }
 
-    Ok(())
+    if args.phase.is_none() {
+        if args.generator == Html.name() {
+            println!("{}", Html.generate(&phase5));
+            return Ok(());
+        } else {
+            return Err(String::from("an unknown generator is specified"))
+        }
+    } else {
+        return Err(String::from("an unknown phase is specified"))
+    }
 }
