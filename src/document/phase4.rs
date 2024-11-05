@@ -411,8 +411,11 @@ impl Phase4Document {
         //   AGE                  Age of the person.
         //   ...
 
-        const SPACE_THRESHOLD: usize = 3;
-        let separator = " ".repeat(SPACE_THRESHOLD);
+        static NORMAL_LEFT_COLUMN: LazyLock<Regex> =
+            LazyLock::new(|| Regex::new(r"^(.+)([ ]{3,})[a-zA-Z0-9]").unwrap());
+
+        static UNWANTED_LISTS: LazyLock<Regex> =
+            LazyLock::new(|| Regex::new(r"^(.+)[ ]{3,}(.+)[ ]{2,}.+").unwrap());
 
         static REFERENCE_LEFT_COLUMN: LazyLock<Regex> =
             LazyLock::new(|| Regex::new(r"^[ ]*\[[A-Za-z0-9._\-]+\][ ]+").unwrap());
@@ -526,18 +529,16 @@ impl Phase4Document {
                                 ending_element = Some((i, j));
                             }
                         } else if !is_reference
-                            && let Some(found) = line.text.rfind(&separator)
-                            && line
-                                .text
-                                .as_bytes()
-                                .get(found + separator.len())
-                                .unwrap_or(&0)
-                                .is_ascii_alphanumeric()
-                            && found < 60
+                            && let Some(found) = NORMAL_LEFT_COLUMN.captures(&line.text)
+                            && let Some(term) = found.get(1)
+                            && let Some(spaces) = found.get(2)
+                            && term.as_str().len() + spaces.as_str().len() < 60
+                            && !UNWANTED_LISTS.is_match(&line.text)
                         {
                             if starting_element.is_none() {
                                 starting_element = Some((i, j));
-                                second_column_start = found + separator.len();
+                                second_column_start = term.as_str().len()
+                                    + spaces.as_str().len();
                                 deflist_depth = depth;
                             } else {
                                 ending_element = Some((i, j));
