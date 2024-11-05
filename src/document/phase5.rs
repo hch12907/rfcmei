@@ -6,7 +6,7 @@ use regex::Regex;
 
 use super::phase2::{Line, LineMetadataKind, StartInfo};
 use super::phase3::{OrderedListStyle, UnorderedListStyle};
-use super::phase4::{Phase4Document, Element as Phase4Element, Section as Phase4Section};
+use super::phase4::{Element as Phase4Element, Phase4Document, Section as Phase4Section};
 
 #[derive(Debug, Clone)]
 pub struct Phase5Document {
@@ -17,7 +17,11 @@ pub struct Phase5Document {
 
 impl Phase5Document {
     pub fn from_phase4(phase4: Phase4Document) -> Self {
-        let Phase4Document { start_info, title, sections } = phase4;
+        let Phase4Document {
+            start_info,
+            title,
+            sections,
+        } = phase4;
 
         let mut this = Self {
             start_info,
@@ -50,7 +54,7 @@ impl Phase5Document {
                 match &elements[i] {
                     InnerElement::Text(text) => {
                         let mut chars = text.chars();
-                        
+
                         while !chars.as_str().is_empty() {
                             if let Some(found) = KEYWORDS_REGEX.find(chars.as_str()) {
                                 let keyword = InnerElement::Keyword(found.as_str().to_owned());
@@ -68,12 +72,10 @@ impl Phase5Document {
                         }
 
                         if !current.is_empty() {
-                            let text = InnerElement::Text(
-                                std::mem::take(&mut current)
-                            );
+                            let text = InnerElement::Text(std::mem::take(&mut current));
                             buffer.push(text);
                         }
-                    },
+                    }
                     InnerElement::Anchor(_, _) => (),
                     InnerElement::Reference(_, _) => (),
                     InnerElement::Keyword(_) => (),
@@ -92,28 +94,36 @@ impl Phase5Document {
 
         fn mark_keywords_in_element(element: &mut Element) {
             match element {
-                Element::Paragraph { preformatted, elements, .. } => {
+                Element::Paragraph {
+                    preformatted,
+                    elements,
+                    ..
+                } => {
                     if *preformatted {
                         return;
                     }
                     mark_keywords_in_inner_elements(elements);
-                },
+                }
                 Element::DefinitionList { definitions, .. } => {
                     for (_term, def) in definitions {
                         mark_keywords_in_inner_elements(def);
                     }
-                },
+                }
                 Element::OrderedList { items, .. } => {
                     for item in items {
                         mark_keywords_in_element(&mut item.1);
                     }
-                },
+                }
                 Element::UnorderedList { items, .. } => {
                     for item in items {
                         mark_keywords_in_element(&mut item.1);
                     }
                 }
-                Element::Table { depth: _, headings: _, cells: _ } => todo!(),
+                Element::Table {
+                    depth: _,
+                    headings: _,
+                    cells: _,
+                } => todo!(),
             }
         }
 
@@ -135,13 +145,18 @@ pub struct Section {
 
 impl Section {
     pub fn from_phase4(phase4: Phase4Section) -> Self {
-        let Phase4Section { id, level, title, elements } = phase4;
+        let Phase4Section {
+            id,
+            level,
+            title,
+            elements,
+        } = phase4;
 
         Self {
             id,
             level,
             title,
-            elements: elements.into_iter().map(Element::from_phase4).collect()
+            elements: elements.into_iter().map(Element::from_phase4).collect(),
         }
     }
 }
@@ -178,7 +193,11 @@ pub enum Element {
 impl Element {
     fn from_phase4(phase4: Phase4Element) -> Self {
         match phase4 {
-            Phase4Element::Paragraph { depth, preformatted, lines } => {
+            Phase4Element::Paragraph {
+                depth,
+                preformatted,
+                lines,
+            } => {
                 let indentation = {
                     let first_depth = lines
                         .first()
@@ -212,10 +231,16 @@ impl Element {
 
                 let elements = InnerElement::from_lines(preformatted, depth, lines);
 
-                Element::Paragraph { depth, indentation, preformatted, elements }
-            },
+                Element::Paragraph {
+                    depth,
+                    indentation,
+                    preformatted,
+                    elements,
+                }
+            }
             Phase4Element::DefinitionList { depth, definitions } => {
-                let definitions = definitions.into_iter()
+                let definitions = definitions
+                    .into_iter()
                     .map(|(term, def)| {
                         let term = InnerElement::from_line(&term);
                         let def = InnerElement::from_lines(false, 0, def);
@@ -223,43 +248,55 @@ impl Element {
                     })
                     .collect();
                 Element::DefinitionList { depth, definitions }
-            },
-            Phase4Element::OrderedList { depth, style, items } => {
-                let items = items.into_iter().map(|item| {
-                    (item.0, Self::from_phase4(item.1))
-                }).collect();
-                
+            }
+            Phase4Element::OrderedList {
+                depth,
+                style,
+                items,
+            } => {
+                let items = items
+                    .into_iter()
+                    .map(|item| (item.0, Self::from_phase4(item.1)))
+                    .collect();
+
                 Element::OrderedList {
                     depth,
                     style,
-                    items
+                    items,
                 }
-            },
-            Phase4Element::UnorderedList { depth, style, items } => {
-                let items = items.into_iter().map(|item| {
-                    (item.0, Self::from_phase4(item.1))
-                }).collect();
-                
+            }
+            Phase4Element::UnorderedList {
+                depth,
+                style,
+                items,
+            } => {
+                let items = items
+                    .into_iter()
+                    .map(|item| (item.0, Self::from_phase4(item.1)))
+                    .collect();
+
                 Element::UnorderedList {
                     depth,
                     style,
-                    items
+                    items,
                 }
-            },
-            Phase4Element::Table { depth, headings, cells } => {
-                let headings = headings
-                    .iter()
-                    .map(InnerElement::from_line)
-                    .collect();
+            }
+            Phase4Element::Table {
+                depth,
+                headings,
+                cells,
+            } => {
+                let headings = headings.iter().map(InnerElement::from_line).collect();
                 let cells = cells
                     .into_iter()
-                    .map(|row| row
-                        .into_iter()
-                        .map(Self::from_phase4)
-                        .collect())
+                    .map(|row| row.into_iter().map(Self::from_phase4).collect())
                     .collect();
-                Element::Table { depth, headings, cells }
-            },
+                Element::Table {
+                    depth,
+                    headings,
+                    cells,
+                }
+            }
         }
     }
 }
@@ -300,8 +337,7 @@ impl InnerElement {
 
             if !preformatted && let Some(next_line) = lines.get(i + 1) {
                 let depth_now = line.text.chars().take_while(|c| *c == ' ').count();
-                let depth_next =
-                    next_line.text.chars().take_while(|c| *c == ' ').count();
+                let depth_next = next_line.text.chars().take_while(|c| *c == ' ').count();
 
                 if depth_now != depth_next {
                     result.push(InnerElement::Break);
@@ -316,13 +352,9 @@ impl InnerElement {
         Self::from_line_inner(line, 0, line.text.len() as u32, None)
     }
 
-    fn from_line_inner(
-        line: &Line,
-        start: u32,
-        len: u32,
-        ignore: Option<usize>
-    ) -> Vec<Self> {
-        let mut iter = line.text
+    fn from_line_inner(line: &Line, start: u32, len: u32, ignore: Option<usize>) -> Vec<Self> {
+        let mut iter = line
+            .text
             .as_bytes()
             .iter()
             .enumerate()
@@ -333,7 +365,10 @@ impl InnerElement {
         let mut current = Vec::<u8>::new();
 
         while let Some((i, c)) = iter.next() {
-            let metadata_idx = line.metadata.iter().position(|meta| meta.column as usize == i);
+            let metadata_idx = line
+                .metadata
+                .iter()
+                .position(|meta| meta.column as usize == i);
 
             let metadata = if metadata_idx != ignore {
                 metadata_idx.map(|i| &line.metadata[i])
@@ -349,7 +384,12 @@ impl InnerElement {
 
                 match &metadata.kind {
                     LineMetadataKind::Reference(r) => {
-                        let mut inner = Self::from_line_inner(line, metadata.column, metadata.length, metadata_idx);
+                        let mut inner = Self::from_line_inner(
+                            line,
+                            metadata.column,
+                            metadata.length,
+                            metadata_idx,
+                        );
                         assert!(inner.len() == 1);
 
                         if metadata.length > 1 {
@@ -358,11 +398,16 @@ impl InnerElement {
 
                         result.push(Self::Reference(
                             r.clone().into(),
-                            Box::new(inner.pop().unwrap()))
-                        )
-                    },
+                            Box::new(inner.pop().unwrap()),
+                        ))
+                    }
                     LineMetadataKind::Anchor(a) => {
-                        let mut inner = Self::from_line_inner(line, metadata.column, metadata.length, metadata_idx);
+                        let mut inner = Self::from_line_inner(
+                            line,
+                            metadata.column,
+                            metadata.length,
+                            metadata_idx,
+                        );
                         assert!(inner.len() == 1);
 
                         if metadata.length > 1 {
@@ -371,9 +416,9 @@ impl InnerElement {
 
                         result.push(Self::Anchor(
                             a.clone().into(),
-                            Box::new(inner.pop().unwrap()))
-                        )
-                    },
+                            Box::new(inner.pop().unwrap()),
+                        ))
+                    }
                     LineMetadataKind::Keyword => todo!(),
                 }
             } else {
@@ -381,14 +426,14 @@ impl InnerElement {
             }
         }
 
-        if (start + len) as usize == line.text.len() 
+        if (start + len) as usize == line.text.len()
             && let Some(connector) = line.connector
         {
             let mut utf8 = [0u8; 4];
             connector.encode_utf8(&mut utf8);
             current.extend_from_slice(&utf8[..connector.len_utf8()]);
         }
-        
+
         if !current.is_empty() {
             let text = String::from_utf8(std::mem::take(&mut current)).unwrap();
             result.push(Self::Text(text));

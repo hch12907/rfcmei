@@ -166,7 +166,7 @@ impl Generator for Html {
             match element {
                 InnerElement::Break => {
                     output.push_str("<br>");
-                },
+                }
                 InnerElement::Text(text) => {
                     for ch in text.chars() {
                         match ch {
@@ -176,22 +176,22 @@ impl Generator for Html {
                             _ => output.push(ch),
                         }
                     }
-                },
+                }
                 InnerElement::Anchor(id, inner_element) => {
                     output.push_str(&format!("<span id=\"{}\">", id));
                     print_inner_element(&inner_element, output);
                     output.push_str("</span>");
-                },
+                }
                 InnerElement::Reference(href, inner_element) => {
                     output.push_str(&format!("<a href=\"{}\">", href));
                     print_inner_element(&inner_element, output);
                     output.push_str("</a>");
-                },
+                }
                 InnerElement::Keyword(word) => {
                     output.push_str("<strong>");
                     output.push_str(word);
                     output.push_str("</strong>");
-                },
+                }
             }
         }
 
@@ -260,9 +260,13 @@ impl Generator for Html {
                         output.push_str("</dd>\n");
                     }
                     output.push_str("</dl>\n");
-                },
+                }
 
-                Element::OrderedList { depth, style, items } => {
+                Element::OrderedList {
+                    depth,
+                    style,
+                    items,
+                } => {
                     let depth_class = depth.saturating_sub(3) / 3;
                     let class = if depth_class > 0 {
                         &format!("class=\"indent-{}\"", depth_class)
@@ -296,7 +300,7 @@ impl Generator for Html {
                     }
                     output.push_str("</li>");
                     output.push_str("</ol>\n");
-                },
+                }
 
                 Element::UnorderedList { depth, items, .. } => {
                     let depth_class = depth.saturating_sub(3) / 3;
@@ -410,9 +414,9 @@ impl Generator for Html {
 
             if section.id.is_some() {
                 table_of_contents.push((
-                    section.title.as_ref(), 
+                    section.title.as_ref(),
                     section.level,
-                    section.id.as_deref().unwrap_or("").trim_start_matches('#')
+                    section.id.as_deref().unwrap_or("").trim_start_matches('#'),
                 ));
             }
 
@@ -444,7 +448,7 @@ impl Generator for Html {
                 toc_html.push_str("</li>");
             }
         }
-    
+
         toc_html.push_str("</ol>");
 
         let rfc = document.start_info.rfc;

@@ -342,9 +342,9 @@ impl Section {
             RegexSet::new([
                 // (This matches lowercase_functions() and F(), G(), P(), Q().
                 // The latter four are probably common in more mathematical RFCs.)
-                r"^[ ]+(?:[a-z_][a-z0-9_]|[FGPQ])*\(.+\);",     // function call
-                r"^[ ]+while ?\(1\)",                           // while(1) loop
-                r"^[ ]+if ?\(.+\)(?: \{)?$",                    // if statement
+                r"^[ ]+(?:[a-z_][a-z0-9_]|[FGPQ])*\(.+\);", // function call
+                r"^[ ]+while ?\(1\)",                       // while(1) loop
+                r"^[ ]+if ?\(.+\)(?: \{)?$",                // if statement
                 r"[a-z_][a-z0-9_]* [+\-*/]=? [a-z_][a-z0-9_]*", // binary expression
             ])
             .unwrap()

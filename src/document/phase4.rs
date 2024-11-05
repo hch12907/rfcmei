@@ -259,22 +259,32 @@ impl Phase4Document {
             get: F,
             get_mut: Fm,
             get_ref: Fr,
-        ) 
-            where F:  Fn(T) -> (bool, Element),
-                  Fm: Fn(&mut T) -> (bool, &mut Element),
-                  Fr: Fn(&T) -> (bool, &Element),
+        ) where
+            F: Fn(T) -> (bool, Element),
+            Fm: Fn(&mut T) -> (bool, &mut Element),
+            Fr: Fn(&T) -> (bool, &Element),
         {
             let mut i = 0;
             while i < elements.len().saturating_sub(1) {
-                let (styled, Element::Paragraph {
-                    depth: depth_this,
-                    preformatted: false,
-                    lines: lines_this,
-                }) = get_ref(&elements[i])
+                let (
+                    styled,
+                    Element::Paragraph {
+                        depth: depth_this,
+                        preformatted: false,
+                        lines: lines_this,
+                    },
+                ) = get_ref(&elements[i])
                 else {
-                    if let Element::OrderedList { depth, style, items } = get_mut(&mut elements[i]).1 {
+                    if let Element::OrderedList {
+                        depth,
+                        style,
+                        items,
+                    } = get_mut(&mut elements[i]).1
+                    {
                         combine_paragraphs_in_ordered_list(items, *depth, style.clone());
-                    } else if let Element::UnorderedList { depth, items, .. } = get_mut(&mut elements[i]).1 {
+                    } else if let Element::UnorderedList { depth, items, .. } =
+                        get_mut(&mut elements[i]).1
+                    {
                         combine_paragraphs_in_unordered_list(items, *depth);
                     }
 
@@ -283,21 +293,21 @@ impl Phase4Document {
                 };
                 let depth_this = *depth_this;
 
-                let (false, Element::Paragraph {
-                    depth: depth_next,
-                    preformatted: false,
-                    lines: lines_next,
-                }) = get_ref(&elements[i + 1])
+                let (
+                    false,
+                    Element::Paragraph {
+                        depth: depth_next,
+                        preformatted: false,
+                        lines: lines_next,
+                    },
+                ) = get_ref(&elements[i + 1])
                 else {
                     i += 1;
                     continue;
                 };
 
-                let true_depth_this = depth_this + list_depth + if styled {
-                    style_depth
-                } else {
-                    0
-                };
+                let true_depth_this =
+                    depth_this + list_depth + if styled { style_depth } else { 0 };
 
                 if true_depth_this != *depth_next {
                     i += 1;
@@ -346,16 +356,22 @@ impl Phase4Document {
                     continue;
                 }
 
-                let (false, Element::Paragraph {
-                    lines: lines_next, ..
-                }) = get(elements.remove(i + 1))
+                let (
+                    false,
+                    Element::Paragraph {
+                        lines: lines_next, ..
+                    },
+                ) = get(elements.remove(i + 1))
                 else {
                     unreachable!();
                 };
 
-                let (_, Element::Paragraph {
-                    lines: lines_this, ..
-                }) = get_mut(&mut elements[i])
+                let (
+                    _,
+                    Element::Paragraph {
+                        lines: lines_this, ..
+                    },
+                ) = get_mut(&mut elements[i])
                 else {
                     unreachable!()
                 };
@@ -377,7 +393,11 @@ impl Phase4Document {
             );
         }
 
-        fn combine_paragraphs_in_ordered_list(items: &mut Vec<(Option<u32>, Element)>, depth: u32, style: OrderedListStyle) {
+        fn combine_paragraphs_in_ordered_list(
+            items: &mut Vec<(Option<u32>, Element)>,
+            depth: u32,
+            style: OrderedListStyle,
+        ) {
             combine_paragraphs_in_lists_inner(
                 items,
                 depth,
@@ -391,12 +411,16 @@ impl Phase4Document {
         for section in &mut self.sections {
             for element in &mut section.elements {
                 match element {
-                    Element::OrderedList { items, depth, style } => {
+                    Element::OrderedList {
+                        items,
+                        depth,
+                        style,
+                    } => {
                         combine_paragraphs_in_ordered_list(items, *depth, style.clone());
-                    },
+                    }
                     Element::UnorderedList { items, depth, .. } => {
                         combine_paragraphs_in_unordered_list(items, *depth);
-                    },
+                    }
                     _ => continue,
                 }
             }
@@ -428,7 +452,7 @@ impl Phase4Document {
 
             // Skip the author's addresses section
             if title.ends_with("authors' addresses") || title.ends_with("author's address") {
-                continue
+                continue;
             }
 
             let mut skip_element = 0;
@@ -537,8 +561,7 @@ impl Phase4Document {
                         {
                             if starting_element.is_none() {
                                 starting_element = Some((i, j));
-                                second_column_start = term.as_str().len()
-                                    + spaces.as_str().len();
+                                second_column_start = term.as_str().len() + spaces.as_str().len();
                                 deflist_depth = depth;
                             } else {
                                 ending_element = Some((i, j));
