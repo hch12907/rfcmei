@@ -419,7 +419,6 @@ impl InnerElement {
                             Box::new(inner.pop().unwrap()),
                         ))
                     }
-                    LineMetadataKind::Keyword => todo!(),
                 }
             } else {
                 current.push(*c);

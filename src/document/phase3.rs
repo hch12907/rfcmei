@@ -2,7 +2,6 @@
 //! to whether be paragraphs, lists (ordered or unordered), or preformatted sections.
 //! Phase 3 will produce a tree that Phase 4 consumes.
 
-use std::fmt::format;
 use std::sync::LazyLock;
 
 use regex::{Regex, RegexSet};

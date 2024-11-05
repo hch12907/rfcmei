@@ -181,8 +181,6 @@ pub enum LineMetadataKind {
     Reference(Box<str>),
     /// See [Phase1Element::Anchor].
     Anchor(Box<str>),
-    /// Keywords are bolded in the final output.
-    Keyword,
 }
 
 #[derive(Debug, Clone)]
