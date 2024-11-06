@@ -64,6 +64,9 @@ r##"
             .table-of-contents .toc-appendix li:before {{
                 content: "";
             }}
+            .toc-appendix span {{
+                user-select: none;
+            }}
             h1 {{
                 text-align: center;
                 padding: 0.5em 0em;
@@ -447,18 +450,23 @@ impl Generator for Html {
                 .map(|&(_, level, _)| level)
                 .unwrap_or(0);
 
-            let is_appendix = title.contains("Appendix");
-            let title = if let Some(split) = title.split_once(".  ")
-                && !is_appendix
+            let is_appendix = id.starts_with("appendix-");
+
+            let (section, title) = if let Some(split) = title.split_once(".  ")
             {
-                split.1
+                if is_appendix {
+                    (format!("<span>{}. </span>", split.0), split.1)
+                } else {
+                    (String::new(), split.1)
+                }
             } else {
-                title
+                (String::new(), title)
             };
 
             toc_html.push_str(&format!(
-                "<li {}><a href=\"#{}\">{}</a>",
+                "<li {}>{}<a href=\"#{}\">{}</a>",
                 if is_appendix { "class=\"toc-appendix\"" } else { "" },
+                if is_appendix { &section } else { "" },
                 id,
                 title
             ));
