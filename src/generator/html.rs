@@ -155,6 +155,19 @@ r##"
             .indented {{
                 text-indent: 1.5rem;
             }}
+            @media screen and (max-width: 800px) {{
+                aside {{
+                    display: none;
+                }}
+                .author {{
+                    float: none;
+                }}
+                .authors {{
+                    display: flex;
+                    height: fit-content;
+                    overflow-x: auto;
+                }}
+            }}
         </style>
     </head>
     <body>
