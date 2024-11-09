@@ -24,6 +24,7 @@ due to format differences.
 cargo build --release
 
 # Using it (requires the original RFC document to be in "HTMLized" format)
+curl "https://www.rfc-editor.org/rfc/rfcXXXX.html" >/path/to/rfc.html
 cargo run --release -- /path/to/rfc.html >prettified.html
 ```
 
