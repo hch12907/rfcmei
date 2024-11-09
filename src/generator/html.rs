@@ -155,6 +155,13 @@ r##"
             .indented {{
                 text-indent: 1.5rem;
             }}
+            .heading {{
+                text-decoration: none;
+                color: black;
+            }}
+            .heading:hover {{
+                text-decoration: underline;
+            }}
             @media screen and (max-width: 800px) {{
                 aside {{
                     display: none;
@@ -434,12 +441,21 @@ impl Generator for Html {
             {
                 continue;
             }
-            result.push_str(&format!(
-                "<h{0} id=\"{2}\">{1}</h{0}>\n",
-                section.level + 2,
-                section.title,
-                section.id.as_deref().unwrap_or("").trim_start_matches('#'),
-            ));
+
+            if let Some(id) = &section.id {
+                result.push_str(&format!(
+                    "<h{0} id=\"{2}\"><a class=\"heading\" href=\"#{2}\">{1}</a></h{0}>\n",
+                    section.level + 2,
+                    section.title,
+                    id.trim_start_matches('#'),
+                ));
+            } else {
+                result.push_str(&format!(
+                    "<h{0}>{1}</h{0}>\n",
+                    section.level + 2,
+                    section.title
+                ));
+            }
 
             if section.id.is_some() {
                 table_of_contents.push((
@@ -465,8 +481,7 @@ impl Generator for Html {
 
             let is_appendix = id.starts_with("appendix-");
 
-            let (section, title) = if let Some(split) = title.split_once(".  ")
-            {
+            let (section, title) = if let Some(split) = title.split_once(".  ") {
                 if is_appendix {
                     (format!("<span>{}. </span>", split.0), split.1)
                 } else {
@@ -478,7 +493,11 @@ impl Generator for Html {
 
             toc_html.push_str(&format!(
                 "<li {}>{}<a href=\"#{}\">{}</a>",
-                if is_appendix { "class=\"toc-appendix\"" } else { "" },
+                if is_appendix {
+                    "class=\"toc-appendix\""
+                } else {
+                    ""
+                },
                 if is_appendix { &section } else { "" },
                 id,
                 title
