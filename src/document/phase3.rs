@@ -445,7 +445,7 @@ impl Section {
         // TODO: This thing is completely unscientific. Do some statistical analysis in the
         // future
         let score = nonalphabet_count * 10
-            + ending_spaces * 20
+            + ending_spaces * 30
             + excessive_spaces * 50
             + graphical_chars * 70;
 
