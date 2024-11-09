@@ -1,17 +1,21 @@
 # rfcmei
 
-This tool prettifies RFC documents, which are typically (prior to RFC 8xxx)
-published in a plain-text ASCII format, into a richer HTML document which can
-then decorated with CSS.
+This tool parses RFC documents, which (prior to RFC 8650) are typically
+published in a plain-text ASCII format, such that a richer HTML document with
+more markup information can be produced and decorated using CSS.
 
 Here is an example of [RFC 6887](https://www.rfc-editor.org/rfc/rfc6887) after
-it is prettified by the tool:
+it is prettified by the tool ([click here](https://hch12907.dev/6887.html) if you
+want to check out the prettified HTML instead):
 
 <img src="./screenshot.png" alt="RFC 6887 prettified" width="90%">
 
 Please understand that the tool is making up new markup information on a best-effort
-basis (the original RFC documents, in plain text, obviously do not contain any
+basis (the original RFC documents, in plain text, obviously contain very little
 markup information). **It can produce erroneous results.**
+
+The tool may also fail to parse earlier RFC documents (especially the 3-digit ones),
+due to format differences.
 
 ## Usage
 
