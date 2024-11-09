@@ -439,7 +439,7 @@ impl Phase4Document {
             LazyLock::new(|| Regex::new(r"^(.+)([ ]{3,})[a-zA-Z0-9]").unwrap());
 
         static UNWANTED_LISTS: LazyLock<Regex> =
-            LazyLock::new(|| Regex::new(r"^(.+)[ ]{3,}(.+)[ ]{2,}.+").unwrap());
+            LazyLock::new(|| Regex::new(r"^(.+)[ ]{3,}(?:[^ ]|[^ ] [^ ])+[ ]{2,}.+").unwrap());
 
         static REFERENCE_LEFT_COLUMN: LazyLock<Regex> =
             LazyLock::new(|| Regex::new(r"^[ ]*\[[A-Za-z0-9._\-]+\][ ]+").unwrap());
