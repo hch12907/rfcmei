@@ -21,7 +21,8 @@ due to format differences.
 
 ```bash
 # Building the program
-cargo build --release
+# (Currently, nightly Rust is required because of let-chains.)
+cargo +nightly build --release
 
 # Using it (requires the original RFC document to be in "HTMLized" format)
 curl "https://www.rfc-editor.org/rfc/rfcXXXX.html" >/path/to/rfc.html
