@@ -522,16 +522,6 @@ impl Phase2Document {
                 }
 
                 Phase1Element::Line(text)
-                    if text.contains(':') && parsing_state == State::Anything =>
-                {
-                    let mut split = text.split(':');
-                    let first = split.next().unwrap().trim_start();
-                    let second = split.next().unwrap().trim();
-
-                    this.others.insert(first.to_string(), second.to_string());
-                }
-
-                Phase1Element::Line(text)
                     if text.starts_with(",") && parsing_state == State::Obsolete =>
                 {
                     continue
@@ -540,6 +530,17 @@ impl Phase2Document {
                     if text.starts_with(",") && parsing_state == State::Anything =>
                 {
                     continue
+                }
+
+                Phase1Element::Line(text) if text.contains(':') =>
+                {
+                    parsing_state = State::Anything;
+
+                    let mut split = text.split(':');
+                    let first = split.next().unwrap().trim_start();
+                    let second = split.next().unwrap().trim();
+
+                    this.others.insert(first.to_string(), second.to_string());
                 }
 
                 Phase1Element::Reference(doc, title) if parsing_state == State::Obsolete => {
@@ -564,7 +565,10 @@ impl Phase2Document {
                     return Err("unexpected reference in start info".into())
                 }
 
-                _ => return Err("unexpected element in start info".into()),
+                x_ => {
+                    eprintln!("{:?}", x_);
+                    return Err("unexpected element in start info".into())
+                },
             }
         }
 
@@ -663,6 +667,17 @@ impl Phase2Document {
                     }
                 }
 
+                [Phase1Element::Line(line)] if !line.starts_with(' ')
+                    && self.start_info.rfc == 3000
+                    && current_section.id.as_deref().unwrap_or("").starts_with("#section-3.") =>
+                {
+                    current_section.lines.push(Line {
+                        text: (String::from("   ") + line).into(),
+                        connector: Some('\n'),
+                        metadata: Vec::new(),
+                    })
+                }
+
                 [Phase1Element::Line(line)] if !line.starts_with(' ') => {
                     if !(current_section.title.is_empty() && current_section.lines.is_empty()) {
                         sections.push(std::mem::take(&mut current_section));
@@ -685,13 +700,7 @@ impl Phase2Document {
                 }, xs @ .., Phase1Element::Text { ending: true, .. }] => {
                     let pad = if !text.starts_with("   ") {
                         // RFC 2190 breaks this.
-                        if current_section.title.to_lowercase().contains("reference")
-                            && text.starts_with("[")
-                        {
-                            "   "
-                        } else {
-                            panic!("Element-containing lines should start with spaces");
-                        }
+                        "   "
                     } else {
                         ""
                     };

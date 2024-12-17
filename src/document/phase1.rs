@@ -443,10 +443,16 @@ impl Phase1Document {
                             {
                                 let fl_without_section = last
                                     .strip_prefix(section)
-                                    .unwrap()
-                                    .strip_prefix(". ")
                                     .unwrap();
 
+                                let fl_without_section = if let Some(fl) = fl_without_section.strip_prefix(". ") {
+                                    fl
+                                } else if let Some(fl) = fl_without_section.strip_prefix(" ") {
+                                    fl
+                                } else {
+                                    fl_without_section
+                                };
+    
                                 let fl_cleared = fl_without_section.trim_start_matches(' ');
 
                                 let cleared_len = last.len() - fl_cleared.len();
