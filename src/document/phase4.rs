@@ -457,7 +457,7 @@ impl Phase4Document {
 
             let mut skip_element = 0;
 
-            while skip_element < section.elements.len() {
+            'this_section: while skip_element < section.elements.len() {
                 let mut deflist_depth = 0;
                 let mut deflist_defs = Vec::new();
                 let mut second_column_start = 0;
@@ -631,7 +631,12 @@ impl Phase4Document {
                             continue;
                         }
 
-                        let (_, mut new_term) = line.carve_out(..second_column_start);
+                        let (_, mut new_term) = if line.text.len() >= second_column_start {
+                            line.carve_out(..second_column_start)
+                        } else {
+                            skip_element += ending_element.0 - starting_element.0 + 1;
+                            continue 'this_section
+                        };
                         new_term.trim_end();
 
                         if !new_term.text.trim_end().is_empty() {
@@ -644,7 +649,6 @@ impl Phase4Document {
                         def.push(line.cut(second_column_start as u32).to_owned());
                     }
                 }
-                deflist_defs.push((term, def));
 
                 let element = Element::DefinitionList {
                     depth: deflist_depth,

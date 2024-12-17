@@ -624,23 +624,31 @@ impl Phase2Document {
                 | Phase1Element::H4 { title, id }
                 | Phase1Element::H5 { title, id }
                 | Phase1Element::H6 { title, id }, xs @ ..] => {
-                    assert!(
-                        xs.is_empty()
-                            || matches!(
-                                &xs[0],
-                                Phase1Element::Text { text, ending: true }
-                                    if text.is_empty()
-                            ),
-                        "headings must occupy the entire line"
-                    );
+                    // RFC 2165 breaks this unfortunately.
+                    if current_section.title.as_ref() == "Table of Contents"
+                        && xs.len() == 1
+                        && let Phase1Element::Text { text, ending: true } = &xs[0]
+                        && text.starts_with("        ")
+                        && text.trim_ascii_start().parse::<u32>().is_ok()
+                    {
+                        // do nothing
+                    } else {
+                        let mut title = String::from(title.clone());
+                        for x in xs {
+                            match x {
+                                Phase1Element::Text { text, ending: _ } => title += &text,
+                                _ => panic!("unexpected elements in Title")
+                            }
+                        }
 
-                    if !(current_section.title.is_empty() && current_section.lines.is_empty()) {
-                        sections.push(std::mem::take(&mut current_section));
+                        if !(current_section.title.is_empty() && current_section.lines.is_empty()) {
+                            sections.push(std::mem::take(&mut current_section));
+                        }
+    
+                        current_section.title = title.into_boxed_str();
+                        current_section.level = id.chars().filter(|c| *c == '.').count();
+                        current_section.id = Some(id.clone());
                     }
-
-                    current_section.title = title.clone();
-                    current_section.level = id.chars().filter(|c| *c == '.').count();
-                    current_section.id = Some(id.clone());
                 }
 
                 [Phase1Element::Line(line)] if line.is_empty() => {
