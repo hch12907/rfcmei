@@ -675,10 +675,21 @@ impl Phase2Document {
                     text,
                     ending: false,
                 }, xs @ .., Phase1Element::Text { ending: true, .. }] => {
-                    assert!(text.starts_with("   "));
+                    let pad = if !text.starts_with("   ") {
+                        // RFC 2190 breaks this.
+                        if current_section.title.to_lowercase().contains("reference")
+                            && text.starts_with("[")
+                        {
+                            "   "
+                        } else {
+                            panic!("Element-containing lines should start with spaces");
+                        }
+                    } else {
+                        ""
+                    };
 
                     let mut this_line = Line {
-                        text: line.make_string(),
+                        text: String::from(pad) + &line.make_string(),
                         connector: Some('\n'),
                         metadata: Vec::new(),
                     };

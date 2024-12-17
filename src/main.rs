@@ -22,11 +22,11 @@ use tree::Tree;
 /// A tool to prettify RFC documents.
 struct Args {
     /// print the output of specified phase
-    #[argh(option, short='p')]
+    #[argh(option, short = 'p')]
     phase: Option<u32>,
 
     /// the generator used to produce the final output
-    #[argh(option, short='g', default=r#"String::from("html")"#)]
+    #[argh(option, short = 'g', default = r#"String::from("html")"#)]
     generator: String,
 
     /// path to the RFC file (in HTML)
@@ -80,9 +80,9 @@ fn main() -> Result<(), String> {
             println!("{}", Html.generate(&phase5));
             return Ok(());
         } else {
-            return Err(String::from("an unknown generator is specified"))
+            return Err(String::from("an unknown generator is specified"));
         }
     } else {
-        return Err(String::from("an unknown phase is specified"))
+        return Err(String::from("an unknown phase is specified"));
     }
 }

@@ -1,3 +1,7 @@
+use std::sync::LazyLock;
+
+use regex::Regex;
+
 use crate::document::phase2::StartInfo;
 use crate::document::phase3::OrderedListStyle;
 use crate::document::phase5::{Element, Indent, InnerElement};
@@ -196,6 +200,9 @@ impl Generator for Html {
     }
 
     fn generate(&self, document: &Document) -> String {
+        static SECTION_NUMBER_REGEX: LazyLock<Regex> =
+            LazyLock::new(|| Regex::new(r"^(\d+\.[ ]+|\d+(?:\.\d+)+\.?[ ]+)(.+)").unwrap());
+
         let mut result = String::new();
 
         fn print_inner_element(element: &InnerElement, output: &mut String) {
@@ -481,14 +488,18 @@ impl Generator for Html {
 
             let is_appendix = id.starts_with("appendix-");
 
-            let (section, title) = if let Some(split) = title.split_once(".  ") {
-                if is_appendix {
-                    (format!("<span>{}. </span>", split.0), split.1)
+            let (section, title) = if is_appendix {
+                if let Some(split) = title.split_once(".  ") {
+                    (split.0, format!("<span>{}</span>", split.1))
                 } else {
-                    (String::new(), split.1)
+                    ("", title.to_owned())
                 }
             } else {
-                (String::new(), title)
+                if let Some(captured) = SECTION_NUMBER_REGEX.captures(title) {
+                    ("", captured[2].to_owned())
+                } else {
+                    ("", title.to_owned())
+                }
             };
 
             toc_html.push_str(&format!(
@@ -498,7 +509,7 @@ impl Generator for Html {
                 } else {
                     ""
                 },
-                if is_appendix { &section } else { "" },
+                &section,
                 id,
                 title
             ));
