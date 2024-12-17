@@ -737,6 +737,7 @@ impl Phase4Document {
 
                     if matches {
                         lines.remove(i);
+                    } else {
                         i += 1;
                     }
                 }
